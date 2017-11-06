@@ -161,13 +161,13 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
             continue
 
         # train with context around box
-        widthBuffer = int((box[2] * 0.5) / 2.0)
-        heightBuffer = int((box[2] * 0.5) / 2.0)
+        widthBuffer = int((box[2] * 0.5) / 1.0)
+        heightBuffer = int((box[3] * 0.5) / 1.0)
 
         r1 = box[1] - heightBuffer
-        r2 = r1 + box[3] + heightBuffer
+        r2 = r1 + box[3] + 2 * heightBuffer
         c1 = box[0] - widthBuffer
-        c2 = c1 + box[2] + widthBuffer
+        c2 = c1 + box[2] + 2 * widthBuffer
 
         if r1 < 0:
             r1 = 0

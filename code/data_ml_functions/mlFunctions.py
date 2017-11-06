@@ -20,11 +20,13 @@ __author__ = 'jhuapl'
 __version__ = 0.1
 
 import json
-from keras.applications import VGG16,imagenet_utils
-from keras.layers import Dense,Input,merge,Flatten,Dropout,LSTM
+from keras.applications import VGG16,imagenet_utils, InceptionResNetV2
+from keras.layers import Dense,Input,Flatten,Dropout,LSTM, concatenate, Reshape
 from keras.models import Sequential,Model
 from keras.preprocessing import image
 from keras.utils.np_utils import to_categorical
+
+from keras_contrib.layers.normalization import InstanceNormalization, BatchRenormalization
 
 import numpy as np
 
@@ -42,28 +44,37 @@ def get_cnn_model(params):
     """
     
     input_tensor = Input(shape=(params.target_img_size[0],params.target_img_size[1],params.num_channels))
-    baseModel = VGG16(weights='imagenet', include_top=False, input_tensor=input_tensor)
-
+    baseModel = InceptionResNetV2(weights='imagenet', include_top=False, input_tensor=input_tensor, pooling='avg')
+    trainable = True
+    for layer in baseModel.layers:
+        if layer.name == 'conv2d_158':
+            trainable = True
+        layer.trainable = trainable
+    #baseModel.summary()
     modelStruct = baseModel.output
-    modelStruct = Flatten(input_shape=baseModel.output_shape[1:])(modelStruct)
+    #modelStruct = Flatten(input_shape=baseModel.output_shape[1:])(modelStruct)
 
     if params.use_metadata:
         auxiliary_input = Input(shape=(params.metadata_length,), name='aux_input')
-        modelStruct = merge([modelStruct,auxiliary_input],mode='concat')
+        auxiliary_input_norm = Reshape((1,1,-1))(auxiliary_input)
+        auxiliary_input_norm = InstanceNormalization(axis=3, name='ins_norm_aux_input')(auxiliary_input_norm)
+        auxiliary_input_norm = Flatten()(auxiliary_input_norm)
 
-    modelStruct = Dense(params.cnn_last_layer_length, activation='relu', name='fc1')(modelStruct)
-    modelStruct = Dropout(0.5)(modelStruct)
-    modelStruct = Dense(params.cnn_last_layer_length, activation='relu', name='fc2')(modelStruct)
-    modelStruct = Dropout(0.5)(modelStruct)
+        modelStruct = concatenate([modelStruct,auxiliary_input_norm])
+
+    modelStruct = Dense(params.cnn_last_layer_length//4, activation='relu', name='fc1')(modelStruct)
+    modelStruct = Dropout(0.2)(modelStruct)
+    modelStruct = Dense(params.cnn_last_layer_length//8, activation='relu', name='fc2')(modelStruct)
+    modelStruct = Dropout(0.1)(modelStruct)
     predictions = Dense(params.num_labels, activation='softmax')(modelStruct)
 
     if not params.use_metadata:
-        model = Model(input=[baseModel.input], output=predictions)
+        model = Model(inputs=[baseModel.input], outputs=predictions)
     else:
-        model = Model(input=[baseModel.input, auxiliary_input], output=predictions)
+        model = Model(inputs=[baseModel.input, auxiliary_input], outputs=predictions)
 
-    for i,layer in enumerate(model.layers):
-        layer.trainable = True
+    #for i,layer in enumerate(model.layers):
+    #    layer.trainable = True
 
     return model
 
@@ -127,22 +138,24 @@ def load_cnn_batch(params, batchData, metadataStats, executor):
     metadata = np.zeros((params.batch_size_cnn,params.metadata_length))
     labels = np.zeros(params.batch_size_cnn)
     inputs = []
+    results = []
     for i in range(0,len(batchData)):
         currInput = {}
         currInput['data'] = batchData[i]
         currInput['metadataStats'] = metadataStats
-        task = partial(_load_batch_helper, currInput)
-        futures.append(executor.submit(task))
+        results.append(_load_batch_helper(currInput))
+        #task = partial(_load_batch_helper, currInput)
+        #futures.append(executor.submit(task))
 
-    results = [future.result() for future in futures]
+    #results = [future.result() for future in futures]
 
     for i,result in enumerate(results):
         metadata[i,:] = result['metadata']
         imgdata[i,:,:,:] = result['img']
         labels[i] = result['labels']
         
-    imgdata = imagenet_utils.preprocess_input(imgdata)
-    imgdata = imgdata / 255.0
+    #imgdata = imagenet_utils.preprocess_input(imgdata)
+    #imgdata = imgdata / 255.0
     
     labels = to_categorical(labels, params.num_labels)
 
@@ -160,6 +173,24 @@ def _load_batch_helper(inputDict):
     metadata = np.divide(json.load(open(data['features_path'])) - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
     img = image.load_img(data['img_path'])
     img = image.img_to_array(img)
+
+    def flip_axis(x, axis):
+        x = np.asarray(x).swapaxes(axis, 0)
+        x = x[::-1, ...]
+        x = x.swapaxes(0, axis)
+        return x
+
+    if np.random.random() < 0.5:
+        img = flip_axis(img, 1)
+
+    if np.random.random() < 0.5:
+        img = flip_axis(img, 0)
+
+
+    img = imagenet_utils.preprocess_input(img, mode='tf')
+
+#    img = imagenet_utils.preprocess_input(img) / 255.
+    
     labels = data['category']
     currOutput = {}
     currOutput['img'] = img

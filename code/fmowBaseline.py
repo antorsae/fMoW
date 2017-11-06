@@ -32,8 +32,11 @@ import os
 from data_ml_functions.mlFunctions import load_cnn_batch
 from data_ml_functions.dataFunctions import get_batch_inds
 #from data_ml_functions.multi_gpu import make_parallel
+#from keras.utils.training_utils import multi_gpu_model
+from multi_gpu_keras import multi_gpu_model
 
 import time
+from tqdm import tqdm
 
 class FMOWBaseline:
     def __init__(self, params=None, argv=None):
@@ -89,8 +92,13 @@ class FMOWBaseline:
         metadataStats = json.load(open(self.params.files['dataset_stats']))
 
         model = get_cnn_model(self.params)
-        #model = make_parallel(model, 4)
+        #model = load_model("test.hdf5")
+        model.summary()
+        model.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.08.hdf5', by_name=True)
+        model = multi_gpu_model(model, gpus=2)
+
         model.compile(optimizer=Adam(lr=self.params.cnn_adam_learning_rate), loss='categorical_crossentropy', metrics=['accuracy'])
+        #model.save("test.hdf5")
         
 #        classWeights = np.array(json.load(open(self.params.files['class_weight'])))
 
@@ -98,8 +106,13 @@ class FMOWBaseline:
         
         print("training")
         filePath = os.path.join(self.params.directories['cnn_checkpoint_weights'], 'weights.{epoch:02d}.hdf5')
-        checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=0, save_best_only=False, save_weights_only=False, mode='auto', period=5)
+        checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, save_weights_only=False, mode='auto')
         callbacks_list = [checkpoint]
+
+        #import copy
+        #_config =  model.get_config()
+        #print(_config)
+        #_config_copy = copy.deepcopy(_config)
 
         model.fit_generator(train_datagen,
             steps_per_epoch=(len(trainData) / self.params.batch_size_cnn + 1),
@@ -128,7 +141,7 @@ class FMOWBaseline:
         
         print("training")
         filePath = os.path.join(self.params.directories['lstm_checkpoint_weights'], 'weights.{epoch:02d}.hdf5')
-        checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=0, save_best_only=False, save_weights_only=False, mode='auto', period=1)
+        checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, save_weights_only=False, mode='auto', period=1)
         callbacks_list = [checkpoint]
 
         model.fit_generator(train_datagen,
@@ -274,10 +287,13 @@ class FMOWBaseline:
         metadataMean = np.array(metadataStats['metadata_mean'])
         metadataMax = np.array(metadataStats['metadata_max'])
 
-        cnnModel = load_model(self.params.files['cnn_model'])
-        #cnnModel = get_cnn_model(self.params)
+        #cnnModel = load_model(self.params.files['cnn_model'])
+        cnnModel = get_cnn_model(self.params)
+        #cnnModel = multi_gpu_model(cnnModel, gpus=2)
+
         #cnnModel = make_parallel(cnnModel, 4)
-        #cnnModel.load_weights('../data/working/cnn_checkpoint_weights/weights.14.hdf5')
+        cnnModel.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.08.hdf5')
+        #cnnModel = multi_gpu_model(cnnModel, gpus=2)
         #cnnModel = cnnModel.layers[-2]
         
         if self.params.test_lstm:
@@ -297,7 +313,7 @@ class FMOWBaseline:
         if self.params.test_lstm:
             fidLSTM = open(os.path.join(self.params.directories['predictions'], 'predictions-lstm-%s.txt' % timestr), 'w')
         
-        for root, dirs, files in os.walk(self.params.directories['test_data']):
+        for root, dirs, files in tqdm(os.walk(self.params.directories['test_data'])):
             if len(files) > 0:
                 imgPaths = []
                 metadataPaths = []
@@ -331,8 +347,8 @@ class FMOWBaseline:
                     features = np.divide(features - metadataMean, metadataMax)
                     metadataFeatures[ind,:] = features
                     
-                imgdata = imagenet_utils.preprocess_input(imgdata)
-                imgdata = imgdata / 255.0
+                imgdata = imagenet_utils.preprocess_input(imgdata, mode='tf')
+                #imgdata = imgdata / 255.0
                 
                 if self.params.test_cnn:
                     if self.params.use_metadata:
@@ -369,7 +385,7 @@ class FMOWBaseline:
                     oursLSTMStr = self.params.category_names[predLSTM]
                     fidLSTM.write('%d,%s\n' % (bbID,oursLSTMStr))
                 index += 1
-                print(index)
+                #print(index)
                 
         if self.params.test_cnn:            
             fidCNN.close()
