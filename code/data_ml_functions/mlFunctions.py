@@ -34,6 +34,9 @@ from data_ml_functions.dataFunctions import get_batch_inds
 from glob import glob
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
+from collections import defaultdict
+import copy
+import random
 
 
 def get_cnn_model(params):   
@@ -110,13 +113,29 @@ def img_metadata_generator(params, data, metadataStats):
     
     N = len(data)
 
-    idx = np.random.permutation(N)
-
-    batchInds = get_batch_inds(params.batch_size_cnn, idx, N)
+    data_labels = [datum['category'] for datum in data]
+    label_to_idx = defaultdict(list)
+    for i, label in enumerate(data_labels):
+        label_to_idx[label].append(i)
 
     executor = ProcessPoolExecutor(max_workers=params.num_workers)
 
+    running_label_to_idx = copy.deepcopy(label_to_idx)
+
     while True:
+        
+        # class-aware supersampling
+        idx = []
+        num_labels = len(label_to_idx)
+        for _ in range(N):
+            random_label = np.random.randint(num_labels)
+            if len(running_label_to_idx[random_label]) == 0:
+                running_label_to_idx[random_label] = copy.copy(label_to_idx[random_label])
+                random.shuffle(running_label_to_idx[random_label])
+            idx.append(running_label_to_idx[random_label].pop())
+
+        batchInds = get_batch_inds(params.batch_size_cnn, idx, N)
+
         for inds in batchInds:
             batchData = [data[ind] for ind in inds]
             imgdata,metadata,labels = load_cnn_batch(params, batchData, metadataStats, executor)

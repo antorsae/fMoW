@@ -38,6 +38,14 @@ from multi_gpu_keras import multi_gpu_model
 import time
 from tqdm import tqdm
 
+import keras.backend as K
+
+def focal_loss(target, output, gamma=2):
+    output /= K.sum(output, axis=-1, keepdims=True)
+    eps = K.epsilon()
+    output = K.clip(output, eps, 1. - eps)
+    return -K.sum(K.pow(1. - output, gamma) * target * K.log(output), axis=-1)
+
 class FMOWBaseline:
     def __init__(self, params=None, argv=None):
         """
@@ -94,10 +102,13 @@ class FMOWBaseline:
         model = get_cnn_model(self.params)
         #model = load_model("test.hdf5")
         model.summary()
-        model.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.08.hdf5', by_name=True)
+        #model.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.01.hdf5', by_name=True)
         model = multi_gpu_model(model, gpus=2)
 
-        model.compile(optimizer=Adam(lr=self.params.cnn_adam_learning_rate), loss='categorical_crossentropy', metrics=['accuracy'])
+        import keras.losses
+        keras.losses.focal_loss = focal_loss
+
+        model.compile(optimizer=Adam(lr=self.params.cnn_adam_learning_rate), loss=focal_loss, metrics=['accuracy'])
         #model.save("test.hdf5")
         
 #        classWeights = np.array(json.load(open(self.params.files['class_weight'])))
@@ -292,7 +303,7 @@ class FMOWBaseline:
         #cnnModel = multi_gpu_model(cnnModel, gpus=2)
 
         #cnnModel = make_parallel(cnnModel, 4)
-        cnnModel.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.08.hdf5')
+        #cnnModel.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.02.hdf5')
         #cnnModel = multi_gpu_model(cnnModel, gpus=2)
         #cnnModel = cnnModel.layers[-2]
         
