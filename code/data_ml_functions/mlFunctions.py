@@ -30,7 +30,7 @@ from keras_contrib.layers.normalization import InstanceNormalization, BatchRenor
 
 import numpy as np
 
-from data_ml_functions.dataFunctions import get_batch_inds
+from data_ml_functions.dataFunctions import get_batch_inds, flip_axis
 from glob import glob
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
@@ -192,12 +192,6 @@ def _load_batch_helper(inputDict):
     metadata = np.divide(json.load(open(data['features_path'])) - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
     img = image.load_img(data['img_path'])
     img = image.img_to_array(img)
-
-    def flip_axis(x, axis):
-        x = np.asarray(x).swapaxes(axis, 0)
-        x = x[::-1, ...]
-        x = x.swapaxes(0, axis)
-        return x
 
     if np.random.random() < 0.5:
         img = flip_axis(img, 1)

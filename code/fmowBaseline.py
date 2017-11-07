@@ -25,7 +25,7 @@ from keras.preprocessing import image
 from keras.models import Model, load_model
 from keras.applications import VGG16,imagenet_utils
 from data_ml_functions.mlFunctions import get_cnn_model,img_metadata_generator,get_lstm_model,codes_metadata_generator
-from data_ml_functions.dataFunctions import prepare_data,calculate_class_weights
+from data_ml_functions.dataFunctions import prepare_data,calculate_class_weights, flip_axis
 import numpy as np
 import os
 
@@ -101,8 +101,8 @@ class FMOWBaseline:
 
         model = get_cnn_model(self.params)
         #model = load_model("test.hdf5")
-        model.summary()
-        #model.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.01.hdf5', by_name=True)
+        #model.summary()
+        model.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.01.hdf5', by_name=True)
         model = multi_gpu_model(model, gpus=2)
 
         import keras.losses
@@ -303,7 +303,7 @@ class FMOWBaseline:
         #cnnModel = multi_gpu_model(cnnModel, gpus=2)
 
         #cnnModel = make_parallel(cnnModel, 4)
-        #cnnModel.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.02.hdf5')
+        cnnModel.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.08.hdf5')
         #cnnModel = multi_gpu_model(cnnModel, gpus=2)
         #cnnModel = cnnModel.layers[-2]
         
@@ -344,7 +344,9 @@ class FMOWBaseline:
                     inds.append(int(metadataPath[underscores[-3]+1:underscores[-2]]))
                 inds = np.argsort(np.array(inds)).tolist()
                 
-                currBatchSize = len(inds)
+                tta_flip_v = tta_flip_h = True
+
+                currBatchSize = len(inds) * (2 if tta_flip_v else 1) * (2 if tta_flip_h else 1)
                 imgdata = np.zeros((currBatchSize, self.params.target_img_size[0], self.params.target_img_size[1], self.params.num_channels))
                 metadataFeatures = np.zeros((currBatchSize, self.params.metadata_length))
                     
@@ -357,7 +359,23 @@ class FMOWBaseline:
                     features = np.array(json.load(open(metadataPaths[ind])))
                     features = np.divide(features - metadataMean, metadataMax)
                     metadataFeatures[ind,:] = features
-                    
+
+                    tta_idx = len(inds) + ind
+                    if tta_flip_v:
+                        imgdata[tta_idx,:,:,:] = flip_axis(img, 0)
+                        metadataFeatures[tta_idx,:] = features
+                        tta_idx += len(inds)
+
+                    if tta_flip_h:
+                        imgdata[tta_idx,:,:,:] = flip_axis(img, 1)
+                        metadataFeatures[tta_idx,:] = features
+                        tta_idx += len(inds)
+
+                        if tta_flip_v:
+                            imgdata[tta_idx,:,:,:] = flip_axis(flip_axis(img, 1), 0)
+                            metadataFeatures[tta_idx,:] = features
+                            tta_idx += len(inds)
+   
                 imgdata = imagenet_utils.preprocess_input(imgdata, mode='tf')
                 #imgdata = imgdata / 255.0
                 

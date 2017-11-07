@@ -235,6 +235,12 @@ def json_to_feature_vector(metadata_length, jsonData):
     features[20] = float(date.weekday())
     
     return features
+
+def flip_axis(x, axis):
+        x = np.asarray(x).swapaxes(axis, 0)
+        x = x[::-1, ...]
+        x = x.swapaxes(0, axis)
+        return x
                   
 def utm_to_xy(zone):
     """
@@ -287,7 +293,7 @@ def calculate_class_weights(params):
     
     counts = {}
     for i in range(0,params.num_labels):
-        counts[i] = 0
+        trainCounts[i] = 0
 
     trainingData = json.load(open(params.files['training_struct']))
 
