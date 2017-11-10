@@ -43,7 +43,7 @@ test_cnn = False
 test_lstm = False
 
 #LEARNING PARAMS
-cnn_adam_learning_rate = 1e-4
+cnn_adam_learning_rate = 5e-5
 cnn_adam_loss = 'categorical_crossentropy'
 cnn_epochs = 15
 	
@@ -54,9 +54,9 @@ lstm_loss = 'categorical_crossentropy'
 #DIRECTORIES AND FILES
 directories = {}
 directories['dataset'] = '../../fmow_dataset'
-directories['input'] = os.path.join('..', 'data', 'input-fixed')
-directories['output'] = os.path.join('..', 'data', 'output-fixed')
-directories['working'] = os.path.join('..', 'data', 'working-fixed')
+directories['input'] = os.path.join('..', 'data', 'input-rotready')
+directories['output'] = os.path.join('..', 'data', 'output-rotready')
+directories['working'] = os.path.join('..', 'data', 'working-rotready')
 directories['train_data'] = os.path.join(directories['input'], 'train_data')
 directories['test_data'] = os.path.join(directories['input'], 'test_data')
 directories['cnn_models'] = os.path.join(directories['working'], 'cnn_models')

@@ -39,6 +39,7 @@ import time
 from tqdm import tqdm
 
 import keras.backend as K
+from importance_sampling.training import ImportanceTraining
 
 def focal_loss(target, output, gamma=2):
     output /= K.sum(output, axis=-1, keepdims=True)
@@ -102,7 +103,7 @@ class FMOWBaseline:
         model = get_cnn_model(self.params)
         #model = load_model("test.hdf5")
         #model.summary()
-        model.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.01.hdf5', by_name=True)
+        model.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.02.hdf5', by_name=True)
         model = multi_gpu_model(model, gpus=2)
 
         import keras.losses
@@ -124,6 +125,8 @@ class FMOWBaseline:
         #_config =  model.get_config()
         #print(_config)
         #_config_copy = copy.deepcopy(_config)
+
+        importance_wrapped_model = ImportanceTraining(model)
 
         model.fit_generator(train_datagen,
             steps_per_epoch=(len(trainData) / self.params.batch_size_cnn + 1),
@@ -303,7 +306,7 @@ class FMOWBaseline:
         #cnnModel = multi_gpu_model(cnnModel, gpus=2)
 
         #cnnModel = make_parallel(cnnModel, 4)
-        cnnModel.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.08.hdf5')
+        cnnModel.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.02.hdf5')
         #cnnModel = multi_gpu_model(cnnModel, gpus=2)
         #cnnModel = cnnModel.layers[-2]
         
