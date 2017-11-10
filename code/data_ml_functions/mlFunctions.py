@@ -32,12 +32,14 @@ import numpy as np
 
 from data_ml_functions.dataFunctions import get_batch_inds, flip_axis
 from glob import glob
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from functools import partial
 from collections import defaultdict
 import copy
 import random
-
+import cv2
+import scipy
+import math
 
 def get_cnn_model(params):   
     """
@@ -118,7 +120,7 @@ def img_metadata_generator(params, data, metadataStats):
     for i, label in enumerate(data_labels):
         label_to_idx[label].append(i)
 
-    executor = ProcessPoolExecutor(max_workers=params.num_workers)
+    executor = ThreadPoolExecutor(max_workers=params.num_workers)
 
     running_label_to_idx = copy.deepcopy(label_to_idx)
 
@@ -162,11 +164,11 @@ def load_cnn_batch(params, batchData, metadataStats, executor):
         currInput = {}
         currInput['data'] = batchData[i]
         currInput['metadataStats'] = metadataStats
-        results.append(_load_batch_helper(currInput))
-        #task = partial(_load_batch_helper, currInput)
-        #futures.append(executor.submit(task))
+        #results.append(_load_batch_helper(currInput))
+        task = partial(_load_batch_helper, currInput)
+        futures.append(executor.submit(task))
 
-    #results = [future.result() for future in futures]
+    results = [future.result() for future in futures]
 
     for i,result in enumerate(results):
         metadata[i,:] = result['metadata']
@@ -189,9 +191,9 @@ def _load_batch_helper(inputDict):
     """
     data = inputDict['data']
     metadataStats = inputDict['metadataStats']
-    metadata = np.divide(json.load(open(data['features_path'])) - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
-    img = image.load_img(data['img_path'])
-    img = image.img_to_array(img)
+    #metadata = np.divide(json.load(open(data['features_path'])) - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
+    metadata = json.load(open(data['features_path']))
+    img = scipy.misc.imread(data['img_path'])
 
     if np.random.random() < 0.5:
         img = flip_axis(img, 1)
@@ -199,7 +201,42 @@ def _load_batch_helper(inputDict):
     if np.random.random() < 0.5:
         img = flip_axis(img, 0)
 
+    def rect_coords(img_shape, sx, sy):
+        x0 = (img_shape[1] - sx)/2
+        x1 = x0 + sx
+        y0 = (img_shape[0] - sy)/ 2
+        y1 = y0 + sy
+        return np.array([x0, x1, x1, x0]), np.array([y0 ,y0, y1,y1])
 
+                                            
+    def rotate(a, angle, img_shape):
+        center = np.array([img_shape[1], img_shape[0]]) / 2.
+        theta = (angle/180.) * np.pi
+        rotMatrix = np.array([[np.cos(theta), -np.sin(theta)], 
+                              [np.sin(theta),  np.cos(theta)]])
+        return np.dot(a - center, rotMatrix) + center
+
+    def enclosing_rect(edges):
+        x0 = np.amin(edges[:,0])
+        x1 = np.amax(edges[:,0])
+        y0 = np.amin(edges[:,1])
+        y1 = np.amax(edges[:,1])
+        return int(x0),int(y0),int(math.ceil(x1)),int(math.ceil(y1)) # np.array(([x0,y0], [x1,y0], [x1,y1], [x0,y1]))
+
+    angle=np.random.randint(360)
+
+    sx,sy = metadata[15:17]
+    x_side, y_side = sx/2, sy/2
+    max_side = np.sqrt((x_side ** 2 ) + (y_side **2)) * 1.4142135624
+    scaling = img.shape[0] / (max_side*2)
+
+    edges = np.squeeze(np.dstack(rect_coords(img.shape, sx*scaling, sy*scaling)))
+    rot_points = rotate(edges, angle, img.shape)
+
+    img = scipy.ndimage.interpolation.rotate(img, angle=angle, reshape=False, mode='constant')
+    x0,y0,x1,y1 = enclosing_rect(rot_points)
+    img = img[y0:y1,x0:x1,...]
+    img = cv2.resize(img, (299,299)).astype(np.float32)#params.target_img_size)
     img = imagenet_utils.preprocess_input(img, mode='tf')
 
 #    img = imagenet_utils.preprocess_input(img) / 255.

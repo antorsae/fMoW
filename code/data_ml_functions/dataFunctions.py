@@ -129,20 +129,12 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
         print(os.path.join(root, imgFile))
         return noResult
 
-    try:
-        img = scipy.misc.imread(os.path.join(root, imgFile))
-
-        #img = image.load_img(os.path.join(root, imgFile))
-        #img = image.img_to_array(img)
-    except:
-        print(os.path.join(root, imgFile))
-        return noResult
-
     jsonData = json.load(open(os.path.join(root, file)))
     if not isinstance(jsonData['bounding_boxes'], list):
         jsonData['bounding_boxes'] = [jsonData['bounding_boxes']]
 
     allResults = []
+    img = None
     for bb in jsonData['bounding_boxes']:
         if isTrain:
             category = bb['category']
@@ -167,76 +159,84 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
         featuresPath = os.path.join(currOut, baseName + '_features.json')
         imgPath = os.path.join(currOut, imgFile)
 
-        x_size, y_size = box[2], box[3]
-        x0, y0 = box[0], box[1]
-        x1, y1 = min(x0 + x_size, img.shape[1]-1), min(y0 + y_size, img.shape[0]-1)
+        if not os.path.isfile(imgPath):
 
-        x_side, y_side = x_size /2 , y_size /2
+            if img is None:
+                try:
+                    img = scipy.misc.imread(os.path.join(root, imgFile))
+                except:
+                    print(os.path.join(root, imgFile))
+                    return noResult
 
-        # don't train on tiny boxes
-        if x_size <= 2 or y_size <= 2:
-            print("Tiny box @ " + file)
-            continue
+            x_size, y_size = box[2], box[3]
+            x0, y0 = box[0], box[1]
+            x1, y1 = min(x0 + x_size, img.shape[1]-1), min(y0 + y_size, img.shape[0]-1)
 
-        x_center = x0 + x_side
-        y_center = y0 + y_side
+            x_side, y_side = x_size /2 , y_size /2
 
-        max_side = np.sqrt((x_side ** 2 ) + (y_side **2)) * 1.4142135624 # to make sure AFTER rotating there's no black areas
+            # don't train on tiny boxes
+            if x_size <= 2 or y_size <= 2:
+                print("Tiny box @ " + file)
+                continue
 
+            x_center = x0 + x_side
+            y_center = y0 + y_side
 
-        _x0, _x1 = int(math.floor(x_center - max_side)), int(math.ceil(x_center + max_side))
-        _y0, _y1 = int(math.floor(y_center - max_side)), int(math.ceil(y_center + max_side))
-
-        pad_x_left   = max(-_x0, 0)
-        pad_x_right  = max(_x1 - img.shape[1], 0)
-        pad_y_top    = max(-_y0, 0)
-        pad_y_bottom = max(_y1 - img.shape[0], 0)
-
-        show = False
-
-        #print(_x0, _y0, _x1, _y1)
+            max_side = np.sqrt((x_side ** 2 ) + (y_side **2)) * 1.4142135624 # to make sure AFTER rotating there's no black areas
 
 
-        if (pad_x_left > 0) or (pad_x_right > 0) or (pad_y_top > 0) or (pad_y_bottom > 0):
+            _x0, _x1 = int(math.floor(x_center - max_side)), int(math.ceil(x_center + max_side))
+            _y0, _y1 = int(math.floor(y_center - max_side)), int(math.ceil(y_center + max_side))
 
-            _xc = x_center
-            _yc = y_center
+            pad_x_left   = max(-_x0, 0)
+            pad_x_right  = max(_x1 - img.shape[1], 0)
+            pad_y_top    = max(-_y0, 0)
+            pad_y_bottom = max(_y1 - img.shape[0], 0)
 
-            #img[y0, x0:x1, :] = (255,0,0)
-            #img[y1, x0:x1, :] = (255,0,0)
-            #img[y0:y1, x0, :] = (255,0,0)
-            #img[y0:y1, x1, :] = (255,0,0)
+            show = False
 
-            img = np.lib.pad(img, ((pad_y_top, pad_y_bottom), (pad_x_left, pad_x_right), (0,0)), 'reflect')
+            #print(_x0, _y0, _x1, _y1)
 
-            _x0 += pad_x_left
-            _x1 += pad_x_left
-            _y0 += pad_y_top
-            _y1 += pad_y_top
 
-            _xc = x_center + pad_x_left
-            _yc = y_center + pad_y_top
+            if (pad_x_left > 0) or (pad_x_right > 0) or (pad_y_top > 0) or (pad_y_bottom > 0):
 
-            #img[_yc-y_side, _xc-x_side:_xc+x_side, :] = (255,0,0)
-            #img[_yc+y_side, _xc-x_side:_xc+x_side, :] = (255,0,0)
-            #img[_yc-y_side:_yc+y_side, _xc-x_side, :] = (255,0,0)
-            #img[_yc-y_side:_yc+y_side, _xc+x_side, :] = (255,0,0)
-            show = True
+                _xc = x_center
+                _yc = y_center
+
+                #img[y0, x0:x1, :] = (255,0,0)
+                #img[y1, x0:x1, :] = (255,0,0)
+                #img[y0:y1, x0, :] = (255,0,0)
+                #img[y0:y1, x1, :] = (255,0,0)
+
+                img = np.lib.pad(img, ((pad_y_top, pad_y_bottom), (pad_x_left, pad_x_right), (0,0)), 'reflect')
+
+                _x0 += pad_x_left
+                _x1 += pad_x_left
+                _y0 += pad_y_top
+                _y1 += pad_y_top
+
+                _xc = x_center + pad_x_left
+                _yc = y_center + pad_y_top
+
+                #img[_yc-y_side, _xc-x_side:_xc+x_side, :] = (255,0,0)
+                #img[_yc+y_side, _xc-x_side:_xc+x_side, :] = (255,0,0)
+                #img[_yc-y_side:_yc+y_side, _xc-x_side, :] = (255,0,0)
+                #img[_yc-y_side:_yc+y_side, _xc+x_side, :] = (255,0,0)
+                show = True
+                #print(img.shape)
+
+            img = img[_y0:_y1, _x0:_x1, :]
             #print(img.shape)
+            if False:#show:
+                iterm.show_image(img.astype(np.uint8))
 
-        img = img[_y0:_y1, _x0:_x1, :]
-        #print(img.shape)
-        if False:#show:
-            iterm.show_image(img.astype(np.uint8))
-
-        #   subImg = image.array_to_img(subImg)
-        print(img.shape)
-        #img = scipy.misc.imresize(img, np.int32(np.array(params['target_img_size']) * 2)) # crashes with huge img (26884, 26884, 3)
-        img = cv2.resize(img, tuple(np.int32(np.array(params['target_img_size']) * 2)[::-1])) # crashes with huge img (26884, 26884, 3)
-        print(img.shape)
-        #print(img.shape)
-        scipy.misc.imsave(imgPath, img)
-        del img
+            #   subImg = image.array_to_img(subImg)
+            #print(img.shape)
+            #img = scipy.misc.imresize(img, np.int32(np.array(params['target_img_size']) * 2)) # crashes with huge img (26884, 26884, 3)
+            img = cv2.resize(img, tuple(np.int32(np.array(params['target_img_size']) * 2)[::-1])) # crashes with huge img (26884, 26884, 3)
+            #print(img.shape)
+            #print(img.shape)
+            scipy.misc.imsave(imgPath, img)
 
         features = json_to_feature_vector(params['metadata_length'], jsonData)
         features = features.tolist()
