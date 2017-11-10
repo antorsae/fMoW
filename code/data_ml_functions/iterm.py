@@ -3,8 +3,11 @@
 import base64
 import cStringIO
 import numpngw
+import numpy as np
 
 def show_image(a):
+    if a.dtype != np.uint8:
+        a = a.astype(np.uint8)
     png_array = cStringIO.StringIO()
     numpngw.write_png(png_array, a)
     encoded_png_array = base64.b64encode(png_array.getvalue())
