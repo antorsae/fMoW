@@ -87,9 +87,10 @@ def multi_gpu_model(model, gpus):
         raise ValueError('`multi_gpu_model` is only available '
                          'with the TensorFlow backend.')
     if gpus <= 1:
-        raise ValueError('For multi-gpu usage to be effective, '
-                         'call `multi_gpu_model` with `gpus >= 2`. '
-                         'Received: `gpus=%d`' % gpus)
+        return model
+ #       raise ValueError('For multi-gpu usage to be effective, '
+ #                        'call `multi_gpu_model` with `gpus >= 2`. '
+ #                        'Received: `gpus=%d`' % gpus)
 
     target_devices = ['/cpu:0'] + ['/gpu:%d' % i for i in range(gpus)]
     available_devices = _get_available_devices()

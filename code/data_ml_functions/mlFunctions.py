@@ -50,16 +50,17 @@ def get_cnn_model(params):
     :return model: CNN model with or without depending on params
     """
     
-    input_tensor = Input(shape=(params.target_img_size[0],params.target_img_size[1],params.num_channels))
+    input_tensor = Input(shape=(params.target_img_size, params.target_img_size, params.num_channels))
     baseModel = InceptionResNetV2(weights='imagenet', include_top=False, input_tensor=input_tensor, pooling='avg')
+
+    # change to freeze weights (experiment)
     trainable = True
     for layer in baseModel.layers:
         if layer.name == 'conv2d_158':
             trainable = True
         layer.trainable = trainable
-    #baseModel.summary()
+
     modelStruct = baseModel.output
-    #modelStruct = Flatten(input_shape=baseModel.output_shape[1:])(modelStruct)
 
     if params.use_metadata:
         auxiliary_input = Input(shape=(params.metadata_length,), name='aux_input')
@@ -69,9 +70,9 @@ def get_cnn_model(params):
 
         modelStruct = concatenate([modelStruct,auxiliary_input_norm])
 
-    modelStruct = Dense(params.cnn_last_layer_length//4, activation='relu', name='fc1')(modelStruct)
+    modelStruct = Dense(1024, activation='relu', name='fc1')(modelStruct)
     modelStruct = Dropout(0.2)(modelStruct)
-    modelStruct = Dense(params.cnn_last_layer_length//8, activation='relu', name='fc2')(modelStruct)
+    modelStruct = Dense(512, activation='relu', name='fc2')(modelStruct)
     modelStruct = Dropout(0.1)(modelStruct)
     predictions = Dense(params.num_labels, activation='softmax')(modelStruct)
 
@@ -80,31 +81,8 @@ def get_cnn_model(params):
     else:
         model = Model(inputs=[baseModel.input, auxiliary_input], outputs=predictions)
 
-    #for i,layer in enumerate(model.layers):
-    #    layer.trainable = True
-
     return model
 
-def get_lstm_model(params, codesStats):
-    """
-    Load LSTM model and add metadata concatenation to input if 'use_metadata' is set in params.py
-    :param params: global parameters, used to find location of the dataset and json file
-    :param codesStats: dictionary containing CNN codes statistics, which are used to normalize the inputs
-    :return model: LSTM model
-    """
-
-    model = Sequential()
-    if params.use_metadata:
-        layerLength = params.cnn_last_layer_length + params.metadata_length
-    else:
-        layerLength = params.cnn_last_layer_length
-    model.add(LSTM(layerLength, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength), dropout=0.5))
-    model.add(Flatten())
-    model.add(Dense(512, activation='relu'))
-    model.add(Dropout(0.5))
-    model.add(Dense(params.num_labels, activation='softmax'))
-    return model
-    
 def img_metadata_generator(params, data, metadataStats):
     """
     Custom generator that yields images or (image,metadata) batches and their 
@@ -138,7 +116,7 @@ def img_metadata_generator(params, data, metadataStats):
                 random.shuffle(running_label_to_idx[random_label])
             idx.append(running_label_to_idx[random_label].pop())
 
-        batchInds = get_batch_inds(params.batch_size_cnn, idx, N)
+        batchInds = get_batch_inds(params.batch_size, idx, N)
 
         for inds in batchInds:
             batchData = [data[ind] for ind in inds]
@@ -157,16 +135,16 @@ def load_cnn_batch(params, batchData, metadataStats, executor):
     :return imgdata,metadata,labels: numpy arrays containing the image data, metadata, and labels (categorical form)
     """
     futures = []
-    imgdata = np.zeros((params.batch_size_cnn,params.target_img_size[0],params.target_img_size[1],params.num_channels))
-    metadata = np.zeros((params.batch_size_cnn,params.metadata_length))
-    labels = np.zeros(params.batch_size_cnn)
+    imgdata = np.zeros((params.batch_size,params.target_img_size,params.target_img_size,params.num_channels))
+    metadata = np.zeros((params.batch_size,params.metadata_length))
+    labels = np.zeros(params.batch_size)
     inputs = []
     results = []
     for i in range(0,len(batchData)):
         currInput = {}
         currInput['data'] = batchData[i]
         currInput['metadataStats'] = metadataStats
-        #results.append(_load_batch_helper(currInput))
+        currInput['target_img_size'] = params.target_img_size
         task = partial(_load_batch_helper, currInput)
         futures.append(executor.submit(task))
 
@@ -182,7 +160,6 @@ def load_cnn_batch(params, batchData, metadataStats, executor):
     
     labels = to_categorical(labels, params.num_labels)
 
-    
     return imgdata,metadata,labels
 
 def rect_coords(img_shape, sx, sy):
@@ -208,8 +185,6 @@ def enclosing_rect(edges, return_edges=False):
         return np.array(([x0,y0], [x1,y0], [x1,y1], [x0,y1]))
     return int(x0),int(y0),int(math.ceil(x1)),int(math.ceil(y1)) # np.array(([x0,y0], [x1,y0], [x1,y1], [x0,y1]))
 
- 
-
 def _load_batch_helper(inputDict):
     """
     Helper for load_cnn_batch that actually loads imagery and supports parallel processing
@@ -218,9 +193,31 @@ def _load_batch_helper(inputDict):
     """
     data = inputDict['data']
     metadataStats = inputDict['metadataStats']
-    #metadata = np.divide(json.load(open(data['features_path'])) - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
     metadata = json.load(open(data['features_path']))
     img = scipy.misc.imread(data['img_path'])
+
+    angle=np.random.randint(360)
+
+    patch_size = img.shape[0]
+    patch_center = patch_size / 2
+    sq2 = 1.4142135624 
+
+    src_points = np.float32([
+        [ patch_center - patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
+        [ patch_center + patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
+        [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ]])
+
+    src_points = rotate(src_points, angle, img.shape).astype(np.float32)
+
+    target_img_size = inputDict['target_img_size']
+
+    dst_points = np.float32([
+        [ 0 , 0 ], 
+        [ target_img_size - 1, 0 ], 
+        [ target_img_size - 1, target_img_size - 1]]) 
+
+    M   = cv2.getAffineTransform(src_points, dst_points)
+    img = cv2.warpAffine(img ,M, (target_img_size, target_img_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
 
     if np.random.random() < 0.5:
         img = flip_axis(img, 1)
@@ -228,105 +225,17 @@ def _load_batch_helper(inputDict):
     if np.random.random() < 0.5:
         img = flip_axis(img, 0)
 
-    angle=np.random.randint(360)
+    #show_image(img.astype(np.uint8))
+    #raw_input("Press enter")
 
-    sx,sy = metadata[15:17]
-    x_side, y_side = sx/2, sy/2
-    max_side = np.sqrt((x_side ** 2 ) + (y_side **2)) * 1.4142135624
-    scaling = img.shape[0] / (max_side*2)
-
-    edges = np.squeeze(np.dstack(rect_coords(img.shape, sx*scaling, sy*scaling)))
-    rot_points = rotate(edges, angle, img.shape)
-
-    #show = False
-    if True:
-        rows,cols = img.shape[:2]
-        M = cv2.getRotationMatrix2D((cols/2,rows/2),angle,1)
-        img = cv2.warpAffine(img,M,(cols,rows))
-#        if np.random.randint(100) == 0:
-#            show = True
-#            show_image(img)
-    else:
-        img = scipy.ndimage.interpolation.rotate(img, angle=angle, reshape=False, mode='constant')
-    x0,y0,x1,y1 = enclosing_rect(rot_points)
-    img = img[y0:y1,x0:x1,...]
-    img = cv2.resize(img, (299,299)).astype(np.float32)#params.target_img_size)
- #   if show:
- #       show_image(img)
     img = imagenet_utils.preprocess_input(img, mode='tf')
+#    img = imagenet_utils.preprocess_input(img) / 255. # this is for vgg, etc.
 
-#    img = imagenet_utils.preprocess_input(img) / 255.
-    
     labels = data['category']
     currOutput = {}
     currOutput['img'] = img
     currOutput['metadata'] = metadata
     currOutput['labels'] = labels
     return currOutput
-
-def codes_metadata_generator(params, data, metadataStats, codesStats):
-    """
-    Custom generator that yields a vector containign the 4096-d CNN codes output by VGG16 and metadata features (if params set to use).
-    :param params: global parameters, used to find location of the dataset and json file
-    :param data: list of objects containing the category labels and paths to CNN codes and images 
-    :param metadataStats: metadata stats used to normalize metadata features
-    :yield (codesMetadata,labels): 4096-d CNN codes + metadata features (if set), and labels (categorical form) 
-    """
-    
-    N = len(data)
-
-    idx = np.random.permutation(N)
-
-    batchInds = get_batch_inds(params.batch_size_lstm, idx, N)
-    trainKeys = list(data.keys())
-    
-    while True:
-        for inds in batchInds:
-            batchKeys = [trainKeys[ind] for ind in inds]
-            codesMetadata,labels = load_lstm_batch(params, data, batchKeys, metadataStats, codesStats)
-            yield(codesMetadata,labels)
-        
-def load_lstm_batch(params, data, batchKeys, metadataStats, codesStats):
-    """
-    Load batch of CNN codes + metadata and preprocess the data before returning.
-    :param params: global parameters, used to find location of the dataset and json file
-    :param data: dictionary where the values are the paths to the files containing the CNN codes and metadata for a particular sequence
-    :param batchKeys: list of keys for the current batch, where each key represents a temporal sequence of CNN codes and metadata
-    :param metadataStats: metadata stats used to normalize metadata features
-    :param codesStats: CNN codes stats used to normalize CNN codes and define the maximum number of temporal views
-    :return codesMetadata,labels: 4096-d CNN codes + metadata (if set) and labels (categorical form)
-    """
-    
-    if params.use_metadata:
-        codesMetadata = np.zeros((params.batch_size_lstm, codesStats['max_temporal'], params.cnn_last_layer_length+params.metadata_length))
-    else:
-        codesMetadata = np.zeros((params.batch_size_lstm, codesStats['max_temporal'], params.cnn_last_layer_length))
-        
-    labels = np.zeros(params.batch_size_lstm)
-    for i,key in enumerate(batchKeys):
-        currData = data[key]
-        labels[i] = currData['category']
-        if params.use_metadata:
-            inds = []
-            for file in currData['metadata_paths']:
-                underscores = [ind for ind,ltr in enumerate(file) if ltr == '_']
-                inds.append(int(file[underscores[-3]+1:underscores[-2]]))
-            inds = np.argsort(np.array(inds)).tolist()
-        else:
-            inds = range(len(currData['cnn_codes_paths']))
-            
-        for codesIndex in inds:
-            cnnCodes = json.load(open(currData['cnn_codes_paths'][codesIndex])) - np.array(codesStats['codes_mean'])
-            if params.use_metadata:
-                metadata = np.divide(json.load(open(currData['metadata_paths'][codesIndex])) - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
-                codesMetadata[i,codesIndex,0:params.metadata_length] = metadata
-                codesMetadata[i,codesIndex,params.metadata_length:] = cnnCodes
-            else:
-                codesMetadata[i,codesIndex,:] = cnnCodes
-    
-    labels = to_categorical(labels, params.num_labels)
-
-    
-    return codesMetadata,labels
 
 	

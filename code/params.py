@@ -32,7 +32,8 @@ metadata_length = 21
 num_channels = 3
 cnn_last_layer_length = 4096
 
-target_img_size = (299,299)
+target_img_size = 299
+context_factor = 1.5
 
 image_format = 'jpg'
 
@@ -54,9 +55,10 @@ lstm_loss = 'categorical_crossentropy'
 #DIRECTORIES AND FILES
 directories = {}
 directories['dataset'] = '../../fmow_dataset'
-directories['input'] = os.path.join('..', 'data', 'input-rotready')
-directories['output'] = os.path.join('..', 'data', 'output-rotready')
-directories['working'] = os.path.join('..', 'data', 'working-rotready')
+directories_suffix = '-rotready2'
+directories['input'] = os.path.join('..', 'data', 'input' + directories_suffix)
+directories['output'] = os.path.join('..', 'data', 'output' + directories_suffix)
+directories['working'] = os.path.join('..', 'data', 'working' + directories_suffix)
 directories['train_data'] = os.path.join(directories['input'], 'train_data')
 directories['test_data'] = os.path.join(directories['input'], 'test_data')
 directories['cnn_models'] = os.path.join(directories['working'], 'cnn_models')

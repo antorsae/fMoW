@@ -27,13 +27,13 @@ import dateutil.parser as dparser
 from PIL import Image
 from sklearn.utils import class_weight
 from keras.preprocessing import image
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from tqdm import tqdm
 import warnings
 
 import code
-import iterm
+from iterm import show_image
 import math
 import scipy.misc
 import cv2
@@ -51,12 +51,11 @@ def prepare_data(params):
     warnings.simplefilter('ignore', Image.DecompressionBombWarning)
 
     walkDirs = ['train', 'val', 'test']
-#    walkDirs = ['test']
 
     executor = ThreadPoolExecutor(max_workers=params.num_workers)
     futures = []
     paramsDict = vars(params)
-    keysToKeep = ['image_format', 'target_img_size', 'metadata_length', 'category_names']
+    keysToKeep = ['image_format', 'target_img_size', 'metadata_length', 'category_names', 'context_factor']
     paramsDict = {keepKey: paramsDict[keepKey] for keepKey in keysToKeep}
     
     results = []
@@ -74,8 +73,7 @@ def prepare_data(params):
                         
             for file in files:
                 if file.endswith('_rgb.json'): #skip _msrgb images
-                    task = partial(_process_file, file, slashes, root, isTrain, outDir, paramsDict)
-                    #results.append(task())
+                    task = partial(_process_file, file, slashes, root, isTrain, outDir, params)
                     futures.append(executor.submit(task))
 
     print('Preprocessing all files...')
@@ -123,8 +121,8 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
     noResult = [(None, None, None)]
     baseName = file[:-5]
 
-    imgFile = baseName + '.' + params['image_format']
-
+    imgFile = baseName + '.' + params.image_format
+        
     if not os.path.isfile(os.path.join(root, imgFile)):
         print(os.path.join(root, imgFile))
         return noResult
@@ -159,7 +157,7 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
         featuresPath = os.path.join(currOut, baseName + '_features.json')
         imgPath = os.path.join(currOut, imgFile)
 
-        if not os.path.isfile(imgPath):
+        if True:#not os.path.isfile(imgPath):
 
             if img is None:
                 try:
@@ -182,69 +180,37 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
             x_center = x0 + x_side
             y_center = y0 + y_side
 
-            max_side = np.sqrt((x_side ** 2 ) + (y_side **2)) * 1.4142135624 # to make sure AFTER rotating there's no black areas
+            _x0 = np.clip(x_center - x_side * params.context_factor, 0, img.shape[1]-1)
+            _x1 = np.clip(x_center + x_side * params.context_factor, 0, img.shape[1]-1)
+            _y0 = np.clip(y_center - y_side * params.context_factor, 0, img.shape[0]-1)
+            _y1 = np.clip(y_center + y_side * params.context_factor, 0, img.shape[0]-1)
 
+            src_points = np.float32([[_x0,_y0], [_x1, _y0], [_x1, _y1]])
+            sq2 = 1.4142135624 
+            patch_size   = int(math.ceil(params.target_img_size * sq2))
+            patch_center = patch_size / 2
+            dst_points = np.float32((
+                [ patch_center - patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
+                [ patch_center + patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
+                [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ])) 
 
-            _x0, _x1 = int(math.floor(x_center - max_side)), int(math.ceil(x_center + max_side))
-            _y0, _y1 = int(math.floor(y_center - max_side)), int(math.ceil(y_center + max_side))
+            M   = cv2.getAffineTransform(src_points, dst_points)
+            _img = cv2.warpAffine(img,M,(patch_size, patch_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
 
-            pad_x_left   = max(-_x0, 0)
-            pad_x_right  = max(_x1 - img.shape[1], 0)
-            pad_y_top    = max(-_y0, 0)
-            pad_y_bottom = max(_y1 - img.shape[0], 0)
+            if False:
+                show_image(_img)
+                print(category)
+                raw_input("Press it now")
 
-            show = False
+            scipy.misc.imsave(imgPath, _img)
 
-            #print(_x0, _y0, _x1, _y1)
-
-
-            if (pad_x_left > 0) or (pad_x_right > 0) or (pad_y_top > 0) or (pad_y_bottom > 0):
-
-                _xc = x_center
-                _yc = y_center
-
-                #img[y0, x0:x1, :] = (255,0,0)
-                #img[y1, x0:x1, :] = (255,0,0)
-                #img[y0:y1, x0, :] = (255,0,0)
-                #img[y0:y1, x1, :] = (255,0,0)
-
-                img = np.lib.pad(img, ((pad_y_top, pad_y_bottom), (pad_x_left, pad_x_right), (0,0)), 'reflect')
-
-                _x0 += pad_x_left
-                _x1 += pad_x_left
-                _y0 += pad_y_top
-                _y1 += pad_y_top
-
-                _xc = x_center + pad_x_left
-                _yc = y_center + pad_y_top
-
-                #img[_yc-y_side, _xc-x_side:_xc+x_side, :] = (255,0,0)
-                #img[_yc+y_side, _xc-x_side:_xc+x_side, :] = (255,0,0)
-                #img[_yc-y_side:_yc+y_side, _xc-x_side, :] = (255,0,0)
-                #img[_yc-y_side:_yc+y_side, _xc+x_side, :] = (255,0,0)
-                show = True
-                #print(img.shape)
-
-            img = img[_y0:_y1, _x0:_x1, :]
-            #print(img.shape)
-            if False:#show:
-                iterm.show_image(img.astype(np.uint8))
-
-            #   subImg = image.array_to_img(subImg)
-            #print(img.shape)
-            #img = scipy.misc.imresize(img, np.int32(np.array(params['target_img_size']) * 2)) # crashes with huge img (26884, 26884, 3)
-            img = cv2.resize(img, tuple(np.int32(np.array(params['target_img_size']) * 2)[::-1])) # crashes with huge img (26884, 26884, 3)
-            #print(img.shape)
-            #print(img.shape)
-            scipy.misc.imsave(imgPath, img)
-
-        features = json_to_feature_vector(params['metadata_length'], jsonData)
+        features = json_to_feature_vector(params.metadata_length, jsonData)
         features = features.tolist()
 
         json.dump(features, open(featuresPath, 'w'))
 
         if isTrain:
-            allResults.append((features, {"features_path": featuresPath, "img_path": imgPath, "category": params['category_names'].index(category)}, None))
+            allResults.append((features, {"features_path": featuresPath, "img_path": imgPath, "category": params.category_names.index(category)}, None))
         else:
             allResults.append((None, None, {"features_path": featuresPath, "img_path": imgPath}))
 
@@ -353,7 +319,6 @@ def calculate_class_weights(params):
     for i,currData in enumerate(trainingData):
         ytrain.append(currData['category'])
         counts[currData['category']] += 1
-        print(i)
 
     classWeights = class_weight.compute_class_weight('balanced', np.unique(ytrain), np.array(ytrain))
 
