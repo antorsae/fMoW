@@ -122,7 +122,7 @@ def img_metadata_generator(params, data, metadataStats):
     for i, label in enumerate(data_labels):
         label_to_idx[label].append(i)
 
-    executor = ThreadPoolExecutor(max_workers=params.num_workers)
+    executor = ThreadPoolExecutor(max_workers=params.num_workers - 1)
 
     running_label_to_idx = copy.deepcopy(label_to_idx)
 
@@ -199,11 +199,13 @@ def rotate(a, angle, img_shape):
                           [np.sin(theta),  np.cos(theta)]])
     return np.dot(a - center, rotMatrix) + center
 
-def enclosing_rect(edges):
+def enclosing_rect(edges, return_edges=False):
     x0 = np.amin(edges[:,0])
     x1 = np.amax(edges[:,0])
     y0 = np.amin(edges[:,1])
     y1 = np.amax(edges[:,1])
+    if return_edges:
+        return np.array(([x0,y0], [x1,y0], [x1,y1], [x0,y1]))
     return int(x0),int(y0),int(math.ceil(x1)),int(math.ceil(y1)) # np.array(([x0,y0], [x1,y0], [x1,y1], [x0,y1]))
 
  

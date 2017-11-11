@@ -24,7 +24,7 @@ from keras.callbacks import ModelCheckpoint
 from keras.preprocessing import image
 from keras.models import Model, load_model
 from keras.applications import VGG16,imagenet_utils
-from data_ml_functions.mlFunctions import get_cnn_model,img_metadata_generator,get_lstm_model,codes_metadata_generator
+from data_ml_functions.mlFunctions import get_cnn_model,img_metadata_generator,get_lstm_model,codes_metadata_generator, rect_coords, rotate, enclosing_rect
 from data_ml_functions.dataFunctions import prepare_data,calculate_class_weights, flip_axis
 import numpy as np
 import os
@@ -39,7 +39,9 @@ import time
 from tqdm import tqdm
 
 import keras.backend as K
-from importance_sampling.training import ImportanceTraining
+#from importance_sampling.training import ImportanceTraining
+import scipy.misc
+import cv2
 
 def focal_loss(target, output, gamma=2):
     output /= K.sum(output, axis=-1, keepdims=True)
@@ -55,6 +57,8 @@ class FMOWBaseline:
         :return: 
         """
         self.params = params
+
+        np.random.seed(0)
         
         for arg in argv:
             if arg == '-prepare':
@@ -103,7 +107,7 @@ class FMOWBaseline:
         model = get_cnn_model(self.params)
         #model = load_model("test.hdf5")
         #model.summary()
-        model.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.02.hdf5', by_name=True)
+        model.load_weights('../data/working-rotready/cnn_checkpoint_weights/weights.09.hdf5', by_name=True)
         model = multi_gpu_model(model, gpus=2)
 
         import keras.losses
@@ -126,7 +130,7 @@ class FMOWBaseline:
         #print(_config)
         #_config_copy = copy.deepcopy(_config)
 
-        importance_wrapped_model = ImportanceTraining(model)
+        #importance_wrapped_model = ImportanceTraining(model)
 
         model.fit_generator(train_datagen,
             steps_per_epoch=(len(trainData) / self.params.batch_size_cnn + 1),
@@ -306,7 +310,7 @@ class FMOWBaseline:
         #cnnModel = multi_gpu_model(cnnModel, gpus=2)
 
         #cnnModel = make_parallel(cnnModel, 4)
-        cnnModel.load_weights('../data/working-fixed/cnn_checkpoint_weights/weights.02.hdf5')
+        cnnModel.load_weights('../data/working-rotready/cnn_checkpoint_weights/weights.09.hdf5')
         #cnnModel = multi_gpu_model(cnnModel, gpus=2)
         #cnnModel = cnnModel.layers[-2]
         
@@ -354,13 +358,35 @@ class FMOWBaseline:
                 metadataFeatures = np.zeros((currBatchSize, self.params.metadata_length))
                     
                 for ind in inds:
-                    img = image.load_img(imgPaths[ind])
-                    img = image.img_to_array(img)
-                    img.setflags(write=True)
-                    imgdata[ind,:,:,:] = img
+                    img = scipy.misc.imread(imgPaths[ind]) #image.load_img(imgPaths[ind])
+                    #img = image.img_to_array(img)
+                    #img.setflags(write=True)
+                    #imgdata[ind,:,:,:] = img
+
+                    CONTEXT = 1.05
+                    CROP_SIZE = 299# self.params.target_img_size[0]
 
                     features = np.array(json.load(open(metadataPaths[ind])))
-                    features = np.divide(features - metadataMean, metadataMax)
+
+                    sx,sy = features[15:17]
+                    x_side, y_side = sx/2, sy/2
+                    max_side = np.sqrt((x_side ** 2 ) + (y_side **2)) * 1.4142135624
+                    scaling = img.shape[0] / (max_side*2)
+
+                    #edges = np.squeeze(np.dstack(rect_coords(img.shape, CONTEXT*sx*scaling, CONTEXT*sy*scaling)))
+                    new_bbox = enclosing_rect(np.squeeze(np.dstack(rect_coords(img.shape, CONTEXT*sx*scaling, CONTEXT*sy*scaling))), return_edges=True)
+                    p0 = new_bbox[0]
+                    p1 = new_bbox[1]
+                    p2 = new_bbox[2]
+                    #print(new_bbox)
+                    dst_points = np.float32(([0,0], [CROP_SIZE-1, 0], [CROP_SIZE-1,CROP_SIZE-1])) 
+                    src_points = np.float32([p0,p1,p2])
+                    #print(src_points)
+                    #print(dst_points)
+                    M = cv2.getAffineTransform(src_points, dst_points)
+                    img = cv2.warpAffine(img,M,(CROP_SIZE,CROP_SIZE)).astype(np.float32)
+                    imgdata[ind,:,:,:]  = img
+                    #features = np.divide(features - metadataMean, metadataMax)
                     metadataFeatures[ind,:] = features
 
                     tta_idx = len(inds) + ind
