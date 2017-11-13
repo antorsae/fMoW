@@ -41,6 +41,7 @@ import scipy.misc
 import cv2
 from data_ml_functions.iterm import show_image
 import math
+import random
 
 def focal_loss(target, output, gamma=2):
     output /= K.sum(output, axis=-1, keepdims=True)
@@ -58,6 +59,7 @@ class FMOWBaseline:
         self.params = params
 
         np.random.seed(0)
+        random.seed(0)
                 
         if self.params.use_metadata:
             self.params.files['cnn_model'] = os.path.join(self.params.directories['cnn_models'], 'cnn_model_with_metadata.model')
