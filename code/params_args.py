@@ -32,7 +32,7 @@ parser.add_argument('-i', '--image-size', type=int, default=299, help='Image siz
 parser.add_argument('-l', '--learning-rate', type=float, default=1e-4, help='Initial learning rate, e.g. -l 1e-4')
 
 #cnn_epochs = 15
-parser.add_argument('--max-epoch', type=int, default=20, help='Epoch to run')
+parser.add_argument('--max-epoch', type=int, default=14, help='Epoch to run')
 
 ## 
 parser.add_argument('--dir-suffix', type=str, default='-rotready2', help='Suffix for directory names')
@@ -40,6 +40,7 @@ parser.add_argument('--prepare', action='store_true', help='Prepare data')
 parser.add_argument('--train', action='store_true', help='Train model')
 parser.add_argument('--test', action='store_true', help='Evaluate model and generate predictions')
 parser.add_argument('-g', '--gpus', type=int, default=1, help='Number of GPUs to use')
+parser.add_argument('--loss', type=str, default='categorical_crossentropy', help='Loss function to use, i.e. categorical_crossentropy or focal')
 
 args = parser.parse_args()
 
@@ -56,6 +57,7 @@ target_img_size = args.image_size
 learning_rate = args.learning_rate
 epochs = args.max_epoch
 directories_suffix = args.dir_suffix
+loss = args.loss
 
 #DIRECTORIES AND FILES
 directories = {}

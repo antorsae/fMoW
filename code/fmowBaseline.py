@@ -86,10 +86,15 @@ class FMOWBaseline:
 
         model = multi_gpu_model(model, gpus=self.params.gpus)
 
-        #import keras.losses
-        #keras.losses.focal_loss = focal_loss
+        import keras.losses
+        keras.losses.focal_loss = focal_loss
 
-        model.compile(optimizer=Adam(lr=self.params.learning_rate), loss='categorical_crossentropy', metrics=['accuracy'])
+        if self.params.loss == 'focal':
+            loss = focal_loss
+        else:
+            loss = self.params.loss
+
+        model.compile(optimizer=Adam(lr=self.params.learning_rate), loss=loss, metrics=['accuracy'])
 
         train_datagen = img_metadata_generator(self.params, trainData, metadataStats)
         
