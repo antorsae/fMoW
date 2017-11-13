@@ -149,41 +149,25 @@ class FMOWBaseline:
                 tta_flip_v = tta_flip_h = True
 
                 currBatchSize = len(inds) * (2 if tta_flip_v else 1) * (2 if tta_flip_h else 1)
-                imgdata = np.zeros((currBatchSize, self.params.target_img_size[0], self.params.target_img_size[1], self.params.num_channels))
+                imgdata = np.zeros((currBatchSize, self.params.target_img_size, self.params.target_img_size, self.params.num_channels))
                 metadataFeatures = np.zeros((currBatchSize, self.params.metadata_length))
                     
                 for ind in inds:
                     img = scipy.misc.imread(imgPaths[ind]) #image.load_img(imgPaths[ind])
 
-                    # REDO ALL THIS. WILL NOT WORK.
-
-                    CONTEXT = 1. #1.05
-                    CROP_SIZE = 299# self.params.target_img_size[0] TODO FIX
-
                     features = np.array(json.load(open(metadataPaths[ind])))
 
-                    sx,sy = features[15:17]
-                    x_side, y_side = sx/2, sy/2
-                    max_side = np.sqrt((x_side ** 2 ) + (y_side **2)) * 1.4142135624
-                    scaling = img.shape[0] / (max_side*2)
+                    crop_size = self.params.target_img_size
+                    x0 = int(img.shape[1]/2 - crop_size/2)
+                    x1 = x0 + crop_size
+                    y0 = int(img.shape[0]/2 - crop_size/2)
+                    y1 = y0 + crop_size
 
-                    new_bbox = enclosing_rect(np.squeeze(np.dstack(rect_coords(img.shape, CONTEXT*sx*scaling, CONTEXT*sy*scaling))), return_edges=True)
-                    p0 = new_bbox[0]
-                    p1 = new_bbox[1]
-                    p2 = new_bbox[2]
-                    #print(new_bbox)
-                    dst_points = np.float32(([0,0], [CROP_SIZE, 0], [CROP_SIZE,CROP_SIZE])) 
-                    src_points = np.float32([p0,p1,p2])
-                    #print(src_points)
-                    #print(dst_points)
-                    show_image(img)
+                    img = img[y0:y1,x0:y1,...]
 
-                    M = cv2.getAffineTransform(src_points, dst_points)
-                    img = cv2.warpAffine(img,M,(CROP_SIZE,CROP_SIZE)).astype(np.float32)
-                    imgdata[ind,...]  = img
-                    show_image(img)
-                    raw_input("press enter")
-                    #features = np.divide(features - metadataMean, metadataMax)
+                    #show_image(img)
+                    #raw_input("press enter")
+
                     metadataFeatures[ind,:] = features
 
                     tta_idx = len(inds) + ind

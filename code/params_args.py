@@ -17,7 +17,7 @@ parser.add_argument('--no-metadata', action='store_true', help='Use metadata')
 #batch_size_cnn = 48
 #batch_size_lstm = 64
 #batch_size_eval = 128
-parser.add_argument('-b', '--batch-size', type=int, default=48, help='Batch size')
+parser.add_argument('-b', '--batch-size', type=int, default=32, help='Batch size')
 
 #metadata_length = 21
 parser.add_argument('--metadata_length', type=int, default=21, help='Metadata length')
@@ -49,7 +49,7 @@ image_format = 'jpg'
 gpus = args.gpus
 num_workers = args.num_workers
 use_metadata = not args.no_metadata
-batch_size = args.batch_size // gpus
+batch_size = args.batch_size * gpus
 metadata_length = args.metadata_length
 num_channels = args.num_channels
 target_img_size = args.image_size
