@@ -41,6 +41,8 @@ parser.add_argument('--train', action='store_true', help='Train model')
 parser.add_argument('--test', action='store_true', help='Evaluate model and generate predictions')
 parser.add_argument('-g', '--gpus', type=int, default=1, help='Number of GPUs to use')
 parser.add_argument('--loss', type=str, default='categorical_crossentropy', help='Loss function to use, i.e. categorical_crossentropy or focal')
+parser.add_argument('-a', '--angle', type=int, default=360, help='Angle range for rotation augmentation, e.g. -a 360')
+parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
 
 args = parser.parse_args()
 
@@ -58,6 +60,9 @@ learning_rate = args.learning_rate
 epochs = args.max_epoch
 directories_suffix = args.dir_suffix
 loss = args.loss
+angle = args.angle
+context_factor = args.context_factor
+
 
 #DIRECTORIES AND FILES
 directories = {}

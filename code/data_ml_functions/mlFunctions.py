@@ -145,6 +145,7 @@ def load_cnn_batch(params, batchData, metadataStats, executor):
         currInput['data'] = batchData[i]
         currInput['metadataStats'] = metadataStats
         currInput['target_img_size'] = params.target_img_size
+        currInput['angle'] = params.angle
         task = partial(_load_batch_helper, currInput)
         futures.append(executor.submit(task))
 
@@ -196,7 +197,7 @@ def _load_batch_helper(inputDict):
     metadata = json.load(open(data['features_path']))
     img = scipy.misc.imread(data['img_path'])
 
-    angle=np.random.randint(360)
+    angle=np.random.randint(inputDict['angle'])
 
     patch_size = img.shape[0]
     patch_center = patch_size / 2
