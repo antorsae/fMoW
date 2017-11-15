@@ -68,6 +68,24 @@ class FMOWBaseline:
             self.params.files['cnn_model'] = os.path.join(self.params.directories['cnn_models'], 'cnn_model_no_metadata.model')
             self.params.files['cnn_codes_stats'] = os.path.join(self.params.directories['working'], 'cnn_codes_stats_no_metadata.json')
     
+    def get_class_weights(self):
+        class_weights = {}
+
+        low_impact = [ 'wind_farm', 'tunnel_opening', 'solar_farm', 'nuclear_powerplant', 'military_facility', 'crop_field', 
+                        'airport', 'flooded_road', 'debris_or_rubble', 'single-unit_residential']
+        high_impact = [ 'border_checkpoint', 'construction_site', 'educational_institution', 'factory_or_powerplant', 'fire_station',
+                        'police_station', 'gas_station', 'smokestack', 'tower', 'road_bridge' ]
+
+        for cat_id in range(self.params.num_labels):
+            class_weights[cat_id] = 1.
+
+        for category in low_impact:
+            class_weights[self.params.category_names.index(category)] = 0.6
+        for category in high_impact:
+            class_weights[self.params.category_names.index(category)] = 1.4
+
+        return class_weights
+
     def train(self):
         """
         Train CNN with or without metadata depending on setting of 'use_metadata' in params.py.
@@ -108,6 +126,7 @@ class FMOWBaseline:
 
         model.fit_generator(train_datagen,
             steps_per_epoch=int(math.ceil((len(trainData) / self.params.batch_size))),
+            class_weight = self.get_class_weights() if self.params.weigthed else None,
             epochs=self.params.epochs, callbacks=callbacks_list)
 
         model.save(self.params.files['cnn_model'])
