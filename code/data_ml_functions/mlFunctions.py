@@ -197,7 +197,7 @@ def _load_batch_helper(inputDict):
     metadata = json.load(open(data['features_path']))
     img = scipy.misc.imread(data['img_path'])
 
-    angle=np.random.randint(inputDict['angle'])
+    angle= (np.random.random() - 0.5 ) * inputDict['angle']
 
     patch_size = img.shape[0]
     patch_center = patch_size / 2
