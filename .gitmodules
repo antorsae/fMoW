@@ -1,0 +1,3 @@
+[submodule "code/data_ml_functions/keras-squeeze-excite-network"]
+	path = code/data_ml_functions/keras-squeeze-excite-network
+	url = git@github.com:titu1994/keras-squeeze-excite-network.git

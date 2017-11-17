@@ -44,6 +44,7 @@ parser.add_argument('--loss', type=str, default='categorical_crossentropy', help
 parser.add_argument('-a', '--angle', type=int, default=360, help='Angle range for rotation augmentation, e.g. -a 360')
 parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
 parser.add_argument('-w', '--weigthed', action='store_true', help='Use weights for more important classes as per Scoring here: https://community.topcoder.com/longcontest/?module=ViewProblemStatement&rd=16996&pm=14684')
+parser.add_argument('-c', '--classifier', type=str, default='InceptionResNetV2', help='Base classifier to use -m InceptionResNetV2|SEInceptionResNetV2|Xception')
 
 args = parser.parse_args()
 
@@ -64,6 +65,7 @@ loss = args.loss
 angle = args.angle
 context_factor = args.context_factor
 weigthed = args.weigthed
+classifier = args.classifier
 
 #DIRECTORIES AND FILES
 directories = {}

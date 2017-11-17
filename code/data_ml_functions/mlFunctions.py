@@ -20,7 +20,7 @@ __author__ = 'jhuapl'
 __version__ = 0.1
 
 import json
-from keras.applications import VGG16,imagenet_utils, InceptionResNetV2
+from keras.applications import VGG16,imagenet_utils, InceptionResNetV2, Xception
 from keras.layers import Dense,Input,Flatten,Dropout,LSTM, concatenate, Reshape
 from keras.models import Sequential,Model
 from keras.preprocessing import image
@@ -43,6 +43,8 @@ import math
 
 from data_ml_functions.iterm import show_image
 
+from data_ml_functions.keras_squeeze_excite_network.se_inception_resnet_v2 import SEInceptionResNetV2
+
 def get_cnn_model(params):   
     """
     Load base CNN model and add metadata fusion layers if 'use_metadata' is set in params.py
@@ -51,8 +53,10 @@ def get_cnn_model(params):
     """
     
     input_tensor = Input(shape=(params.target_img_size, params.target_img_size, params.num_channels))
-    baseModel = InceptionResNetV2(weights='imagenet', include_top=False, input_tensor=input_tensor, pooling='avg')
 
+    classifier = globals()[params.classifier]
+    baseModel = classifier(weights='imagenet', include_top=False, input_tensor=input_tensor, pooling='avg')
+    
     # change to freeze weights (experiment)
     trainable = True
     for layer in baseModel.layers:
@@ -199,26 +203,35 @@ def _load_batch_helper(inputDict):
 
     angle= (np.random.random() - 0.5 ) * inputDict['angle']
 
-    patch_size = img.shape[0]
-    patch_center = patch_size / 2
-    sq2 = 1.4142135624 
-
-    src_points = np.float32([
-        [ patch_center - patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
-        [ patch_center + patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
-        [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ]])
-
-    src_points = rotate(src_points, angle, img.shape).astype(np.float32)
-
     target_img_size = inputDict['target_img_size']
 
-    dst_points = np.float32([
-        [ 0 , 0 ], 
-        [ target_img_size - 1, 0 ], 
-        [ target_img_size - 1, target_img_size - 1]]) 
+    if angle != 0.:
+        patch_size = img.shape[0]
+        patch_center = patch_size / 2
+        sq2 = 1.4142135624 
 
-    M   = cv2.getAffineTransform(src_points, dst_points)
-    img = cv2.warpAffine(img ,M, (target_img_size, target_img_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
+        src_points = np.float32([
+            [ patch_center - patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
+            [ patch_center + patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
+            [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ]])
+
+        src_points = rotate(src_points, angle, img.shape).astype(np.float32)
+
+        dst_points = np.float32([
+            [ 0 , 0 ], 
+            [ target_img_size - 1, 0 ], 
+            [ target_img_size - 1, target_img_size - 1]]) 
+
+        M   = cv2.getAffineTransform(src_points, dst_points)
+        img = cv2.warpAffine(img ,M, (target_img_size, target_img_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
+    else:
+        crop_size = target_img_size
+        x0 = int(img.shape[1]/2 - crop_size/2)
+        x1 = x0 + crop_size
+        y0 = int(img.shape[0]/2 - crop_size/2)
+        y1 = y0 + crop_size
+
+        img = img[y0:y1,x0:y1,...]
 
     if np.random.random() < 0.5:
         img = flip_axis(img, 1)
