@@ -74,10 +74,11 @@ def get_cnn_model(params):
 
         modelStruct = concatenate([modelStruct,auxiliary_input_norm])
 
-    modelStruct = Dense(1024, activation='relu', name='fc1')(modelStruct)
-    modelStruct = Dropout(0.2)(modelStruct)
-    modelStruct = Dense(512, activation='relu', name='fc2')(modelStruct)
-    modelStruct = Dropout(0.1)(modelStruct)
+        modelStruct = Dense(1024, activation='relu', name='fc1')(modelStruct)
+        modelStruct = Dropout(0.2)(modelStruct)
+        modelStruct = Dense(512, activation='relu', name='fc2')(modelStruct)
+        modelStruct = Dropout(0.1)(modelStruct)
+
     predictions = Dense(params.num_labels, activation='softmax')(modelStruct)
 
     if not params.use_metadata:
