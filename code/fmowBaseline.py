@@ -189,12 +189,13 @@ class FMOWBaseline:
                     y0 = int(img.shape[0]/2 - crop_size/2)
                     y1 = y0 + crop_size
 
-                    img = img[y0:y1,x0:y1,...]
+                    img = img[y0:y1, x0:x1, ...]
 
                     #show_image(img)
                     #raw_input("press enter")
 
                     metadataFeatures[ind,:] = features
+                    imgdata[ind, ...] = img
 
                     tta_idx = len(inds) + ind
                     if tta_flip_v:
