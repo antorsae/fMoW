@@ -172,7 +172,7 @@ class FMOWBaseline:
                     inds.append(int(metadataPath[underscores[-3]+1:underscores[-2]]))
                 inds = np.argsort(np.array(inds)).tolist()
                 
-                tta_flip_v = tta_flip_h = True
+                tta_flip_v = tta_flip_h = self.params.flips
 
                 currBatchSize = len(inds) * (2 if tta_flip_v else 1) * (2 if tta_flip_h else 1)
                 imgdata = np.zeros((currBatchSize, self.params.target_img_size, self.params.target_img_size, self.params.num_channels))

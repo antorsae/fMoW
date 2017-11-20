@@ -45,6 +45,8 @@ from data_ml_functions.iterm import show_image
 
 from data_ml_functions.keras_squeeze_excite_network.se_inception_resnet_v2 import SEInceptionResNetV2
 
+from data_ml_functions.DenseNet import densenet
+
 def get_cnn_model(params):   
     """
     Load base CNN model and add metadata fusion layers if 'use_metadata' is set in params.py
@@ -55,8 +57,12 @@ def get_cnn_model(params):
     input_tensor = Input(shape=(params.target_img_size, params.target_img_size, params.num_channels))
 
     classifier = globals()[params.classifier]
-    baseModel = classifier(weights='imagenet', include_top=False, input_tensor=input_tensor, pooling='avg')
-    
+    if params.classifier == 'densenet':
+        baseModel = densenet.DenseNetImageNet161(
+            input_shape=(params.target_img_size, params.target_img_size, params.num_channels), include_top=False, input_tensor=input_tensor)
+    else:
+        baseModel = classifier(weights='imagenet', include_top=False, input_tensor=input_tensor, pooling='avg')
+            
     # change to freeze weights (experiment)
     trainable = True
     for layer in baseModel.layers:
@@ -151,6 +157,7 @@ def load_cnn_batch(params, batchData, metadataStats, executor):
         currInput['metadataStats'] = metadataStats
         currInput['target_img_size'] = params.target_img_size
         currInput['angle'] = params.angle
+        currInput['flips'] = params.flips
         task = partial(_load_batch_helper, currInput)
         futures.append(executor.submit(task))
 
@@ -234,15 +241,19 @@ def _load_batch_helper(inputDict):
 
         img = img[y0:y1,x0:y1,...]
 
-    if np.random.random() < 0.5:
-        img = flip_axis(img, 1)
+    if inputDict['flips']:
+        if np.random.random() < 0.5:
+            img = flip_axis(img, 1)
 
-    if np.random.random() < 0.5:
-        img = flip_axis(img, 0)
+        if np.random.random() < 0.5:
+            img = flip_axis(img, 0)
 
     #show_image(img.astype(np.uint8))
     #raw_input("Press enter")
+    
 
+    # TODO : FIX for multiple models
+    #img = densenet.preprocess_input(img)
     img = imagenet_utils.preprocess_input(img, mode='tf')
 #    img = imagenet_utils.preprocess_input(img) / 255. # this is for vgg, etc.
 

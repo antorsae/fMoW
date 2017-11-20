@@ -89,6 +89,9 @@ def prepare_data(params):
     trainCount = len(trainingData)
     testData = [r[2] for r in results if r[2] is not None]
 
+    # Shutdown the executor and free resources
+    executor.shutdown()
+
     metadataMean = metadataTrainSum / trainCount
     metadataMax = np.zeros(params.metadata_length)
     for currFeat in allTrainFeatures:
@@ -157,7 +160,7 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
         featuresPath = os.path.join(currOut, baseName + '_features.json')
         imgPath = os.path.join(currOut, imgFile)
 
-        if True:#not os.path.isfile(imgPath):
+        if not os.path.isfile(imgPath):
 
             if img is None:
                 try:
@@ -204,7 +207,7 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
 
             scipy.misc.imsave(imgPath, _img)
 
-        features = json_to_feature_vector(params.metadata_length, jsonData)
+        features = json_to_feature_vector(params, jsonData, bb)
         features = features.tolist()
 
         json.dump(features, open(featuresPath, 'w'))
@@ -216,14 +219,8 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
 
     return allResults
 
-def json_to_feature_vector(metadata_length, jsonData):
-    """
-    Generates feature vector for CNN fusion from metadata
-    :param metadata_length: total number of metadata parameters being used
-    :param jsonData: metadata from a JSON file
-    :return features: numpy feature vector representation of the metadata
-    """
-    features = np.zeros(metadata_length, dtype=float)
+def json_to_feature_vector(params, jsonData, bb):
+    features = np.zeros(params.metadata_length, dtype=float)
     features[0] = float(jsonData['gsd'])
     x,y = utm_to_xy(jsonData['utm'])
     features[1] = x
@@ -240,19 +237,47 @@ def json_to_feature_vector(metadata_length, jsonData):
     else:
         features[8] = 1.0
     features[9] = float(jsonData['pan_resolution_dbl'])
-    features[10] = float(jsonData['multi_resolution_dbl'])
-    features[11] = float(jsonData['target_azimuth_dbl']) / 360.0
-    features[12] = float(jsonData['sun_azimuth_dbl']) / 360.0
-    features[13] = float(jsonData['sun_elevation_dbl']) / 90.0
-    features[14] = float(jsonData['off_nadir_angle_dbl']) / 90.0
-    features[15] = float(jsonData['bounding_boxes'][0]['box'][2])
-    features[16] = float(jsonData['bounding_boxes'][0]['box'][3])
-    features[17] = float(jsonData['img_width'])
-    features[18] = float(jsonData['img_height'])
-    features[19] = float(len(jsonData['approximate_wavelengths']))
-    features[20] = float(date.weekday())
+    features[10] = float(jsonData['pan_resolution_start_dbl'])
+    features[11] = float(jsonData['pan_resolution_end_dbl'])
+    features[12] = float(jsonData['pan_resolution_min_dbl'])
+    features[13] = float(jsonData['pan_resolution_max_dbl'])
+    features[14] = float(jsonData['multi_resolution_dbl'])
+    features[15] = float(jsonData['multi_resolution_min_dbl'])
+    features[16] = float(jsonData['multi_resolution_max_dbl'])
+    features[17] = float(jsonData['multi_resolution_start_dbl'])
+    features[18] = float(jsonData['multi_resolution_end_dbl'])
+    features[19] = float(jsonData['target_azimuth_dbl']) / 360.0
+    features[20] = float(jsonData['target_azimuth_min_dbl']) / 360.0
+    features[21] = float(jsonData['target_azimuth_max_dbl']) / 360.0
+    features[22] = float(jsonData['target_azimuth_start_dbl']) / 360.0
+    features[23] = float(jsonData['target_azimuth_end_dbl']) / 360.0
+    features[24] = float(jsonData['sun_azimuth_dbl']) / 360.0
+    features[25] = float(jsonData['sun_azimuth_min_dbl']) / 360.0
+    features[26] = float(jsonData['sun_azimuth_max_dbl']) / 360.0
+    features[27] = float(jsonData['sun_elevation_min_dbl']) / 90.0
+    features[28] = float(jsonData['sun_elevation_dbl']) / 90.0
+    features[29] = float(jsonData['sun_elevation_max_dbl']) / 90.0
+    features[30] = float(jsonData['off_nadir_angle_dbl']) / 90.0
+    features[31] = float(jsonData['off_nadir_angle_min_dbl']) / 90.0
+    features[32] = float(jsonData['off_nadir_angle_max_dbl']) / 90.0
+    features[33] = float(jsonData['off_nadir_angle_start_dbl']) / 90.0
+    features[34] = float(jsonData['off_nadir_angle_end_dbl']) / 90.0
+    features[35] = float(bb['box'][2])
+    features[36] = float(bb['box'][3])
+    features[37] = float(jsonData['img_width'])
+    features[38] = float(jsonData['img_height'])
+    features[39] = float(date.weekday())
+    features[40] = min([features[35], features[36]]) / max([features[37], features[38]])
+    features[41] = features[35] / features[37]
+    features[42] = features[36] / features[38]
+    features[43] = date.second
+    if len(jsonData['bounding_boxes']) == 1:
+        features[44] = 1.0
+    else:
+        features[44] = 0.0
     
     return features
+
 
 def flip_axis(x, axis):
         x = np.asarray(x).swapaxes(axis, 0)

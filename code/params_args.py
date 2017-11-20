@@ -20,7 +20,7 @@ parser.add_argument('--no-metadata', action='store_true', help='Use metadata')
 parser.add_argument('-b', '--batch-size', type=int, default=32, help='Batch size')
 
 #metadata_length = 21
-parser.add_argument('--metadata_length', type=int, default=21, help='Metadata length')
+parser.add_argument('--metadata_length', type=int, default=45, help='Metadata length')
 #num_channels = 3
 parser.add_argument('--num-channels', type=int, default=3, help='Number of channels (bands)')
 
@@ -45,6 +45,7 @@ parser.add_argument('-a', '--angle', type=int, default=360, help='Angle range fo
 parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
 parser.add_argument('-w', '--weigthed', action='store_true', help='Use weights for more important classes as per Scoring here: https://community.topcoder.com/longcontest/?module=ViewProblemStatement&rd=16996&pm=14684')
 parser.add_argument('-c', '--classifier', type=str, default='InceptionResNetV2', help='Base classifier to use -m InceptionResNetV2|SEInceptionResNetV2|Xception')
+parser.add_argument('-f', '--flips', action='store_true', help='Use horizontal/vertical flips augmentation')
 
 args = parser.parse_args()
 
@@ -66,6 +67,7 @@ angle = args.angle
 context_factor = args.context_factor
 weigthed = args.weigthed
 classifier = args.classifier
+flips = args.flips
 
 #DIRECTORIES AND FILES
 directories = {}

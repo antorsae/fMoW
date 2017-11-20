@@ -21,7 +21,8 @@ __version__ = 0.1
 import sys
 
 from fmowBaseline import FMOWBaseline
-import params_args as params #params.py
+import params_args as params
+from data_ml_functions.dataFunctions import prepare_data, calculate_class_weights
 
 def main(argv):
     baseline = FMOWBaseline(params, argv)

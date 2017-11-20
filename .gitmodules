@@ -1,3 +1,6 @@
 [submodule "code/data_ml_functions/keras-squeeze-excite-network"]
 	path = code/data_ml_functions/keras-squeeze-excite-network
 	url = git@github.com:titu1994/keras-squeeze-excite-network.git
+[submodule "code/data_ml_functions/DenseNet"]
+	path = code/data_ml_functions/DenseNet
+	url = git@github.com:titu1994/DenseNet.git
