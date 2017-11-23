@@ -24,7 +24,7 @@ from keras.callbacks import ModelCheckpoint
 from keras.preprocessing import image
 from keras.models import Model, load_model
 from keras.applications import VGG16,imagenet_utils
-from data_ml_functions.mlFunctions import get_cnn_model,img_metadata_generator, rect_coords, rotate, enclosing_rect
+from data_ml_functions.mlFunctions import get_cnn_model,img_metadata_generator, rotate, transform_metadata
 from data_ml_functions.dataFunctions import prepare_data,calculate_class_weights, flip_axis
 import numpy as np
 import os
@@ -103,6 +103,9 @@ class FMOWBaseline:
 
         if self.params.args.load_weights:
             model.load_weights(self.params.args.load_weights, by_name=True)
+
+        if self.params.print_model_summary:
+            model.summary()
 
         model = multi_gpu_model(model, gpus=self.params.gpus)
 
@@ -189,34 +192,37 @@ class FMOWBaseline:
                     y0 = int(img.shape[0]/2 - crop_size/2)
                     y1 = y0 + crop_size
 
-                    img = img[y0:y1, x0:x1, ...]
+                    img = img[y0:y1, x0:x1, ...].astype(np.float32)
 
                     #show_image(img)
                     #raw_input("press enter")
 
                     metadataFeatures[ind,:] = features
+
+                    img = imagenet_utils.preprocess_input(img) / 255.
                     imgdata[ind, ...] = img
 
                     tta_idx = len(inds) + ind
                     if tta_flip_v:
                         imgdata[tta_idx,...] = flip_axis(img, 0)
-                        metadataFeatures[tta_idx,:] = features
+                        metadataFeatures[tta_idx,:] = transform_metadata(features, flip_h = False, flip_v=True)
                         tta_idx += len(inds)
 
                     if tta_flip_h:
                         imgdata[tta_idx,...] = flip_axis(img, 1)
-                        metadataFeatures[tta_idx,:] = features
+                        metadataFeatures[tta_idx,:] = transform_metadata(features, flip_h = True, flip_v=False)
                         tta_idx += len(inds)
 
                         if tta_flip_v:
                             imgdata[tta_idx,...] = flip_axis(flip_axis(img, 1), 0)
-                            metadataFeatures[tta_idx,:] = features
+                            metadataFeatures[tta_idx,:] = transform_metadata(features, flip_h = True, flip_v=True)
                             tta_idx += len(inds)
    
-                imgdata = imagenet_utils.preprocess_input(imgdata, mode='tf')
+#                imgdata = imagenet_utils.preprocess_input(imgdata, mode='tf')
                 #imgdata = imgdata / 255.0
                 
                 if self.params.use_metadata:
+                    metadataFeatures = np.divide(metadataFeatures - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
                     predictionsCNN = np.sum(model.predict([imgdata, metadataFeatures], batch_size=currBatchSize), axis=0)
                 else:
                     predictionsCNN = np.sum(model.predict(imgdata, batch_size=currBatchSize), axis=0)

@@ -26,7 +26,7 @@ parser.add_argument('--num-channels', type=int, default=3, help='Number of chann
 
 
 #target_img_size = (299,299)
-parser.add_argument('-i', '--image-size', type=int, default=299, help='Image size (side) in pixels (e.g. -i 299)')
+parser.add_argument('-i', '--image-size', type=int, default=224, help='Image size (side) in pixels (e.g. -i 299)')
 
 #cnn_adam_learning_rate = 1e-4
 parser.add_argument('-l', '--learning-rate', type=float, default=1e-4, help='Initial learning rate, e.g. -l 1e-4')
@@ -35,17 +35,19 @@ parser.add_argument('-l', '--learning-rate', type=float, default=1e-4, help='Ini
 parser.add_argument('--max-epoch', type=int, default=14, help='Epoch to run')
 
 ## 
-parser.add_argument('--dir-suffix', type=str, default='-rotready2', help='Suffix for directory names')
+parser.add_argument('-d', '--dir-suffix', type=str, default='-rotready2', help='Suffix for directory names')
 parser.add_argument('--prepare', action='store_true', help='Prepare data')
 parser.add_argument('--train', action='store_true', help='Train model')
 parser.add_argument('--test', action='store_true', help='Evaluate model and generate predictions')
 parser.add_argument('-g', '--gpus', type=int, default=1, help='Number of GPUs to use')
 parser.add_argument('--loss', type=str, default='categorical_crossentropy', help='Loss function to use, i.e. categorical_crossentropy or focal')
-parser.add_argument('-a', '--angle', type=int, default=360, help='Angle range for rotation augmentation, e.g. -a 360')
+parser.add_argument('-a', '--angle', type=int, default=0, help='Angle range for rotation augmentation, e.g. -a 360')
 parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
 parser.add_argument('-w', '--weigthed', action='store_true', help='Use weights for more important classes as per Scoring here: https://community.topcoder.com/longcontest/?module=ViewProblemStatement&rd=16996&pm=14684')
-parser.add_argument('-c', '--classifier', type=str, default='InceptionResNetV2', help='Base classifier to use -m InceptionResNetV2|SEInceptionResNetV2|Xception')
+parser.add_argument('-c', '--classifier', type=str, default='densenet', help='Base classifier to use -m InceptionResNetV2|SEInceptionResNetV2|Xception|densenet')
 parser.add_argument('-f', '--flips', action='store_true', help='Use horizontal/vertical flips augmentation')
+parser.add_argument('--freeze', type=int, default=0, help='Freeze first n CNN layers, e.g. --freeze 10')
+parser.add_argument('-pms', '--print-model-summary', action='store_true', help='Ditto')
 
 args = parser.parse_args()
 
@@ -68,6 +70,8 @@ context_factor = args.context_factor
 weigthed = args.weigthed
 classifier = args.classifier
 flips = args.flips
+freeze = args.freeze
+print_model_summary = args.print_model_summary
 
 #DIRECTORIES AND FILES
 directories = {}
