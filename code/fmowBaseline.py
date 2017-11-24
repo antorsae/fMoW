@@ -42,6 +42,7 @@ import cv2
 from data_ml_functions.iterm import show_image
 import math
 import random
+import re
 
 def focal_loss(target, output, gamma=2):
     output /= K.sum(output, axis=-1, keepdims=True)
@@ -96,13 +97,22 @@ class FMOWBaseline:
         trainData = json.load(open(self.params.files['training_struct']))
         metadataStats = json.load(open(self.params.files['dataset_stats']))
 
+        loaded_filename = None
         if self.params.args.load_model:
-            model = load_model(params.args.load_model)
+            model = load_model(self.params.args.load_model)
+            loaded_filename = os.path.basename(self.params.args.load_model)
         else:
             model = get_cnn_model(self.params)
 
         if self.params.args.load_weights:
             model.load_weights(self.params.args.load_weights, by_name=True)
+            loaded_filename = os.path.basename(self.params.args.load_weights)
+
+        initial_epoch = 0
+        if loaded_filename:
+            match = re.search(r'\w+\.(\d+)\.hdf5', loaded_filename)
+            if match:
+                initial_epoch = int(match.group(1)) 
 
         if self.params.print_model_summary:
             model.summary()
@@ -130,7 +140,7 @@ class FMOWBaseline:
         model.fit_generator(train_datagen,
             steps_per_epoch=int(math.ceil((len(trainData) / self.params.batch_size))),
             class_weight = self.get_class_weights() if self.params.weigthed else None,
-            epochs=self.params.epochs, callbacks=callbacks_list)
+            epochs=self.params.epochs, callbacks=callbacks_list, initial_epoch = initial_epoch)
 
         model.save(self.params.files['cnn_model'])
         

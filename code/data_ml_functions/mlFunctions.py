@@ -178,13 +178,6 @@ def load_cnn_batch(params, batchData, metadataStats, executor):
 
     return imgdata,metadata,labels
 
-def rect_coords(img_shape, sx, sy):
-        x0 = (img_shape[1] - sx)/2
-        x1 = x0 + sx
-        y0 = (img_shape[0] - sy)/ 2
-        y1 = y0 + sy
-        return np.array([x0, x1, x1, x0]), np.array([y0 ,y0, y1,y1])
-
 # counter-clockwise rotation
 def rotate(a, angle, img_shape):
     center = np.array([img_shape[1], img_shape[0]]) / 2.
@@ -193,19 +186,10 @@ def rotate(a, angle, img_shape):
                           [np.sin(theta),  np.cos(theta)]])
     return np.dot(a - center, rotMatrix) + center
 
-def enclosing_rect(edges, return_edges=False):
-    x0 = np.amin(edges[:,0])
-    x1 = np.amax(edges[:,0])
-    y0 = np.amin(edges[:,1])
-    y1 = np.amax(edges[:,1])
-    if return_edges:
-        return np.array(([x0,y0], [x1,y0], [x1,y1], [x0,y1]))
-    return int(x0),int(y0),int(math.ceil(x1)),int(math.ceil(y1)) # np.array(([x0,y0], [x1,y0], [x1,y1], [x0,y1]))
-
 def transform_metadata(metadata, flip_h, flip_v, angle=0):
     metadata_angles = np.fmod(180. + np.array(metadata[19:27]) * 360., 360.) - 180.
 
-    metadata_angles -= angle
+    metadata_angles += angle
 
     if flip_h:
         metadata_angles = 180. - metadata_angles
@@ -214,6 +198,7 @@ def transform_metadata(metadata, flip_h, flip_v, angle=0):
 
     metadata[19:27] = list(np.fmod(metadata_angles + 2*360., 360.) / 360.)
 
+    assert all([i <= 1. and i >=0. for i in metadata[19:27]])
     return metadata
 
 def _load_batch_helper(inputDict):
@@ -250,7 +235,7 @@ def _load_batch_helper(inputDict):
             [ target_img_size - 1, target_img_size - 1]]) 
 
         M   = cv2.getAffineTransform(src_points, dst_points)
-        img = cv2.warpAffine(img ,M, (target_img_size, target_img_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
+        img = cv2.warpAffine(img, M, (target_img_size, target_img_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
 
     else:
         crop_size = target_img_size
