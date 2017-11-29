@@ -35,7 +35,6 @@ from multi_gpu_keras import multi_gpu_model
 
 import time
 from tqdm import tqdm
-
 import keras.backend as K
 import scipy.misc
 import cv2
@@ -242,8 +241,5 @@ class FMOWBaseline:
                 oursCNNStr = self.params.category_names[predCNN]
                 fidCNN.write('%d,%s\n' % (bbID,oursCNNStr))
                 index += 1
-                
-        fidCNN.close()        
-                    
-    
-    
+
+        fidCNN.close()

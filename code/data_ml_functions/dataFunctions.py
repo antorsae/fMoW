@@ -89,7 +89,8 @@ def prepare_data(params):
     trainCount = len(trainingData)
     testData = [r[2] for r in results if r[2] is not None]
 
-    # Shutdown the executor and free resources
+    # Shutdown the executor and free resources 
+    print('Computing stats...')
     executor.shutdown()
 
     metadataMean = metadataTrainSum / trainCount
@@ -169,28 +170,98 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
                     print(os.path.join(root, imgFile))
                     return noResult
 
-            x_size, y_size = box[2], box[3]
-            x0, y0 = box[0], box[1]
-            x1, y1 = min(x0 + x_size, img.shape[1]-1), min(y0 + y_size, img.shape[0]-1)
+            if False:
+                # fixed context
 
-            x_side, y_side = x_size /2 , y_size /2
+                x_size, y_size = box[2], box[3]
+                x0, y0 = box[0], box[1]
+                x1, y1 = min(x0 + x_size, img.shape[1]-1), min(y0 + y_size, img.shape[0]-1)
 
-            # don't train on tiny boxes
-            if x_size <= 2 or y_size <= 2:
-                print("Tiny box @ " + file)
-                continue
+                x_side, y_side = x_size /2 , y_size /2
 
-            x_center = x0 + x_side
-            y_center = y0 + y_side
+                # don't train on tiny boxes
+                if x_size <= 2 or y_size <= 2:
+                    print("Tiny box @ " + file)
+                    continue
 
-            _x0 = np.clip(x_center - x_side * params.context_factor, 0, img.shape[1]-1)
-            _x1 = np.clip(x_center + x_side * params.context_factor, 0, img.shape[1]-1)
-            _y0 = np.clip(y_center - y_side * params.context_factor, 0, img.shape[0]-1)
-            _y1 = np.clip(y_center + y_side * params.context_factor, 0, img.shape[0]-1)
+                x_center = x0 + x_side
+                y_center = y0 + y_side
 
+                _x0 = np.clip(x_center - x_side * params.context_factor, 0, img.shape[1]-1)
+                _x1 = np.clip(x_center + x_side * params.context_factor, 0, img.shape[1]-1)
+                _y0 = np.clip(y_center - y_side * params.context_factor, 0, img.shape[0]-1)
+                _y1 = np.clip(y_center + y_side * params.context_factor, 0, img.shape[0]-1)
+            else:
+                # variable context
+                # 
+                # basefile strategy, see https://arxiv.org/pdf/1711.07846.pdf
+                # ie: 'We found that it was useful to provide more context for categories
+                # with smaller sizes (e.g., single-unit residential) and
+                # less context for categories that generally cover larger areas
+                # (e.g., airports).' (page 7)
+
+                if box[2] <= 2 or box[3] <= 2:
+                    print("Tiny box @ " + file)
+                    continue
+                
+                contextMultWidth = 0.15
+                contextMultHeight = 0.15
+                
+                wRatio = float(box[2]) / img.shape[0]
+                hRatio = float(box[3]) / img.shape[1]
+                
+                if wRatio < 0.5 and wRatio >= 0.4:
+                    contextMultWidth = 0.2
+                if wRatio < 0.4 and wRatio >= 0.3:
+                    contextMultWidth = 0.3
+                if wRatio < 0.3 and wRatio >= 0.2:
+                    contextMultWidth = 0.5
+                if wRatio < 0.2 and wRatio >= 0.1:
+                    contextMultWidth = 1
+                if wRatio < 0.1:
+                    contextMultWidth = 2
+                    
+                if hRatio < 0.5 and hRatio >= 0.4:
+                    contextMultHeight = 0.2
+                if hRatio < 0.4 and hRatio >= 0.3:
+                    contextMultHeight = 0.3
+                if hRatio < 0.3 and hRatio >= 0.2:
+                    contextMultHeight = 0.5
+                if hRatio < 0.2 and hRatio >= 0.1:
+                    contextMultHeight = 1
+                if hRatio < 0.1:
+                    contextMultHeight = 2
+                
+                
+                widthBuffer  = int((box[2] * contextMultWidth) / 2.0)
+                heightBuffer = int((box[3] * contextMultHeight) / 2.0)
+
+                r1 = box[1] - heightBuffer
+                r2 = box[1] + box[3] + heightBuffer
+                c1 = box[0] - widthBuffer
+                c2 = box[0] + box[2] + widthBuffer
+
+                if r1 < 0:
+                    r1 = 0
+                if r2 > img.shape[0]:
+                    r2 = img.shape[0]
+                if c1 < 0:
+                    c1 = 0
+                if c2 > img.shape[1]:
+                    c2 = img.shape[1]
+
+                if r1 >= r2 or c1 >= c2:
+                    print("Inconsistent dimensions @ " + file)
+                    continue
+
+                _x0, _x1 = c1, c2
+                _y0, _y1 = r1, r2
+
+            # take 3 points and leave sqrt(2) * side so that rotating the patch around center
+            # always has valid pixels in the center params.target_img_size square
             src_points = np.float32([[_x0,_y0], [_x1, _y0], [_x1, _y1]])
             sq2 = 1.4142135624 
-            patch_size   = int(math.ceil(params.target_img_size * sq2))
+            patch_size   = params.target_img_size * sq2
             patch_center = patch_size / 2
             dst_points = np.float32((
                 [ patch_center - patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
@@ -198,7 +269,8 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
                 [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ])) 
 
             M   = cv2.getAffineTransform(src_points, dst_points)
-            _img = cv2.warpAffine(img,M,(patch_size, patch_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
+            patch_size_int = int(math.ceil(patch_size))
+            _img = cv2.warpAffine(img, M, (patch_size_int, patch_size_int), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
 
             if False:
                 show_image(_img)
@@ -349,5 +421,3 @@ def calculate_class_weights(params):
 
     with open(params.files['class_weight'], 'w') as json_file:
         json.dump(classWeights.tolist(), json_file)
-    
-    
