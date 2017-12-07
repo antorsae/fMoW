@@ -32,7 +32,13 @@ def main(argv):
         calculate_class_weights(params)
 
     if params.args.train:
-        baseline.train()
+    	if params.args.multi:
+        	baseline.train_multi()
+    	else:
+        	baseline.train()
+
+    if params.args.generate_cnn_codes:
+    	baseline.generate_cnn_codes()
 
     if params.args.test:
         baseline.test()
