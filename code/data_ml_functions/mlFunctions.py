@@ -20,7 +20,7 @@ __author__ = 'jhuapl'
 __version__ = 0.1
 
 import json
-from keras.applications import VGG16,imagenet_utils, InceptionResNetV2, Xception
+from keras.applications import VGG16, imagenet_utils, InceptionResNetV2, Xception, ResNet50
 from keras.layers import Dense,Input,Flatten,Dropout,LSTM, concatenate, Reshape
 from keras.models import Sequential,Model
 from keras.preprocessing import image
@@ -79,7 +79,7 @@ def get_cnn_model(params):
         auxiliary_input = Input(shape=(params.metadata_length,), name='aux_input')
         auxiliary_input_norm = Reshape((1,1,-1))(auxiliary_input)
         auxiliary_input_norm = InstanceNormalization(axis=3, name='ins_norm_aux_input')(auxiliary_input_norm)
-        auxiliary_input_norm = Flatten()(auxiliary_input_norm) if params.classifier != 'densenet' else auxiliary_input
+        auxiliary_input_norm = Flatten()(auxiliary_input_norm) #if params.classifier != 'densenet' else auxiliary_input
 
         modelStruct = concatenate([modelStruct, auxiliary_input_norm])
 
@@ -88,6 +88,7 @@ def get_cnn_model(params):
         modelStruct = Dense(512, activation='relu', name='nfc2')(modelStruct)
         modelStruct = Dropout(0.1)(modelStruct)
 
+    #modelStruct = Flatten()(modelStruct)
     predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
 
     if not params.use_metadata:
@@ -110,11 +111,13 @@ def get_multi_model(params, codesStats):
     else:
         layerLength = params.cnn_multi_layer_length
 
+    print(codesStats['max_temporal'], layerLength)
     model = Sequential()
-    model.add(LSTM(4096, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength), dropout=0.5))
+    model.add(LSTM(256, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength), dropout=0.5))
+    model.add(LSTM(256, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength), dropout=0.5))
     model.add(Flatten())
-    model.add(Dense(512, activation='relu'))
-    model.add(Dropout(0.5))
+#    model.add(Dense(512, activation='relu'))
+#    model.add(Dropout(0.5))
     model.add(Dense(params.num_labels, activation='softmax'))
     return model
 
@@ -134,10 +137,9 @@ def img_metadata_generator(params, data, metadataStats):
     label_to_idx = defaultdict(list)
     for i, label in enumerate(data_labels):
         label_to_idx[label].append(i)
+    running_label_to_idx = copy.deepcopy(label_to_idx)
 
     executor = ThreadPoolExecutor(max_workers=params.num_workers)
-
-    running_label_to_idx = copy.deepcopy(label_to_idx)
 
     while True:
         
@@ -210,11 +212,12 @@ def rotate(a, angle, img_shape):
 def transform_metadata(metadata, flip_h, flip_v, angle=0):
     metadata_angles = np.fmod(180. + np.array(metadata[19:27]) * 360., 360.) - 180.
 
+    # b/c angles are clockwise we add the clockwise rotation angle
     metadata_angles += angle
 
-    if flip_h:
-        metadata_angles = 180. - metadata_angles
-    if flip_v:
+    if flip_h: # > <
+        metadata_angles =      - metadata_angles
+    if flip_v: # v ^
         metadata_angles = 180. - metadata_angles
 
     metadata[19:27] = list(np.fmod(metadata_angles + 2*360., 360.) / 360.)
@@ -248,13 +251,16 @@ def _load_batch_helper(inputDict):
             [ patch_center + patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
             [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ]])
 
+        # src_points are rotated COUNTER-CLOCKWISE
         src_points = rotate(src_points, angle, img.shape).astype(np.float32)
 
+        # dst_points are fixed
         dst_points = np.float32([
             [ 0 , 0 ], 
             [ target_img_size - 1, 0 ], 
             [ target_img_size - 1, target_img_size - 1]]) 
 
+        # this is effectively a CLOCKWISE rotation
         M   = cv2.getAffineTransform(src_points, dst_points)
         img = cv2.warpAffine(img, M, (target_img_size, target_img_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
 
@@ -285,11 +291,8 @@ def _load_batch_helper(inputDict):
     #raw_input("Press enter")
     metadata = transform_metadata(metadata, flip_h=flip_h, flip_v=flip_v, angle=angle)
 
-    # TODO : FIX for multiple models
-    #img = densenet.preprocess_input(img)
+
     img = imagenet_utils.preprocess_input(img) / 255.
-    #img = imagenet_utils.preprocess_input(img, mode='tf')
-#    img = imagenet_utils.preprocess_input(img) / 255. # this is for vgg, etc.
 
     labels = data['category']
     currOutput = {}
@@ -310,18 +313,33 @@ def codes_metadata_generator(params, data, metadataStats, codesStats):
     
     N = len(data)
 
+    data_labels = [datum['category'] for datum in data.values()]
+    label_to_idx = defaultdict(list)
+    for i, label in enumerate(data_labels):
+        label_to_idx[label].append(i)
+    running_label_to_idx = copy.deepcopy(label_to_idx)
 
     trainKeys = list(data.keys())
 
-    executor = ProcessPoolExecutor(max_workers=params.num_workers)
+    executor = ThreadPoolExecutor(max_workers=params.num_workers)
     
     while True:
-        idx = np.random.permutation(N)
+        #idx = np.random.permutation(N)
+        # class-aware supersampling
+        idx = []
+        num_labels = len(label_to_idx)
+        for _ in range(N):
+            random_label = np.random.randint(num_labels)
+            if len(running_label_to_idx[random_label]) == 0:
+                running_label_to_idx[random_label] = copy.copy(label_to_idx[random_label])
+                random.shuffle(running_label_to_idx[random_label])
+            idx.append(running_label_to_idx[random_label].pop())
+
         batchInds = get_batch_inds(params.batch_size, idx, N)
 
         for inds in batchInds:
             batchKeys = [trainKeys[ind] for ind in inds]
-            codesMetadata,labels = load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor)
+            codesMetadata, labels = load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor)
             yield(codesMetadata,labels)
         
 def load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor):

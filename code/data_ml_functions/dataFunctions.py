@@ -72,7 +72,7 @@ def prepare_data(params):
                 slashes = [i for i,ltr in enumerate(root) if ltr == '/']
                         
             for file in files:
-                if file.endswith('_rgb.json'): #skip _msrgb images
+                if file.endswith('_'+ params.args.img_suffix + '.json'): # _msrgb or _rgb images
                     task = partial(_process_file, file, slashes, root, isTrain, outDir, params)
                     futures.append(executor.submit(task))
 
@@ -182,7 +182,7 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
                 # don't train on tiny boxes
                 if x_size <= 2 or y_size <= 2:
                     print("Tiny box @ " + file)
-                    continue
+                    #continue
 
                 x_center = x0 + x_side
                 y_center = y0 + y_side
@@ -202,7 +202,7 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
 
                 if box[2] <= 2 or box[3] <= 2:
                     print("Tiny box @ " + file)
-                    continue
+                    #continue
                 
                 contextMultWidth = 0.15
                 contextMultHeight = 0.15

@@ -19,8 +19,8 @@ __author__ = 'jhuapl'
 __version__ = 0.1
 
 import json
-from keras.optimizers import Adam
-from keras.callbacks import ModelCheckpoint
+from keras.optimizers import Adam, RMSprop
+from keras.callbacks import ModelCheckpoint, Callback
 from keras.preprocessing import image
 from keras.models import Model, load_model
 from keras.applications import VGG16,imagenet_utils
@@ -48,6 +48,17 @@ def focal_loss(target, output, gamma=2):
     eps = K.epsilon()
     output = K.clip(output, eps, 1. - eps)
     return -K.sum(K.pow(1. - output, gamma) * target * K.log(output), axis=-1)
+
+class FMOW_Callback(Callback):
+
+    def __init__(self):
+        super(Callback, self).__init__()
+
+ 
+    def on_epoch_begin(self, epoch, logs={}):
+        np.random.seed(epoch)
+        random.seed(epoch)
+        return
 
 class FMOWBaseline:
     def __init__(self, params=None, argv=None):
@@ -91,6 +102,33 @@ class FMOWBaseline:
 
         return class_weights
 
+    def get_preffix(self):
+        preffix_pairs = [ \
+            'multi' if self.params.multi else 'cnn', \
+            'd_' + self.params.directories_suffix, \
+            'c_' + self.params.classifier if not self.params.multi else '', \
+            'lr_' + str(self.params.learning_rate), \
+            'b_' + str(self.params.batch_size), 'a_' + str(self.params.angle), 
+            'freeze_' + str(self.params.freeze), \
+            'w_' if self.params.weigthed else '', \
+            'loss_' + self.params.loss if self.params.loss != 'categorical_crossentropy' else '', \
+            'f_' if self.params.flips else '', 'w_' if self.params.weigthed else '' \
+            ]
+
+        preffix_pairs = [x for x in preffix_pairs if x != '']
+        
+        preffix = '-'.join(preffix_pairs)
+
+        return preffix
+
+    def get_initial_epoch(self, loaded_filename):
+        initial_epoch = 0
+        if loaded_filename:
+            match = re.search(r'.*epoch_(\d+).*\.hdf5', loaded_filename)
+            if match:
+                initial_epoch = int(match.group(1))
+        return initial_epoch
+
     def train(self):
         """
         Train CNN with or without metadata depending on setting of 'use_metadata' in params.py.
@@ -112,11 +150,7 @@ class FMOWBaseline:
             model.load_weights(self.params.args.load_weights, by_name=True)
             loaded_filename = os.path.basename(self.params.args.load_weights)
 
-        initial_epoch = 0
-        if loaded_filename:
-            match = re.search(r'.*epoch_(\d+).*\.hdf5', loaded_filename)
-            if match:
-                initial_epoch = int(match.group(1)) 
+        initial_epoch = self.get_initial_epoch(loaded_filename)
 
         if self.params.print_model_summary:
             model.summary()
@@ -135,27 +169,15 @@ class FMOWBaseline:
 
         train_datagen = img_metadata_generator(self.params, trainData, metadataStats)
         
-        preffix_pairs = [ \
-            'd_' + self.params.directories_suffix, \
-            'c_' + self.params.classifier , 'lr_' + str(self.params.learning_rate), \
-            'b_' + str(self.params.batch_size), 'a_' + str(self.params.angle), 
-            'freeze_' + str(self.params.freeze), \
-            'w_' if self.params.weigthed else '', \
-            'loss_' + self.params.loss if self.params.loss != 'categorical_crossentropy' else '', \
-            'f_' if self.params.flips else '', 'w_' if self.params.weigthed else '' \
-            ]
-
-        preffix_pairs = [x for x in preffix_pairs if x != '']
-        
-        preffix = '-'.join(preffix_pairs)
+        preffix = self.get_preffix()
 
         print("training single-image model: " + preffix)
 
         filePath = os.path.join(self.params.directories['cnn_checkpoint_weights'], 
-            preffix + '-epoch_' + '{epoch:02d}' + '-' + '-acc_' + '{acc:.4f}.hdf5')
+            preffix + '-epoch_' + '{epoch:02d}' + '-acc_' + '{acc:.4f}.hdf5')
 
         checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, save_weights_only=False, mode='auto')
-        callbacks_list = [checkpoint]
+        callbacks_list = [checkpoint, FMOW_Callback()]
 
         model.fit_generator(train_datagen,
             steps_per_epoch=int(math.ceil((len(trainData) / self.params.batch_size))),
@@ -186,59 +208,77 @@ class FMOWBaseline:
             model.load_weights(self.params.args.load_weights, by_name=True)
             loaded_filename = os.path.basename(self.params.args.load_weights)
 
-        initial_epoch = 0
-        if loaded_filename:
-            match = re.search(r'\w+\.(\d+)\.hdf5', loaded_filename)
-            if match:
-                initial_epoch = int(match.group(1)) 
+        initial_epoch = self.get_initial_epoch(loaded_filename)
 
         if self.params.print_model_summary:
             model.summary()
 
         model = multi_gpu_model(model, gpus=self.params.gpus)
 
-        model.compile(optimizer=Adam(lr=self.params.learning_rate), loss='categorical_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer=RMSprop(lr=self.params.learning_rate), loss='categorical_crossentropy', metrics=['accuracy'])
 
         train_datagen = codes_metadata_generator(self.params, codesTrainData, metadataStats, codesStats)
         
-        print("training multi-image model: ")
-        filePath = os.path.join(self.params.directories['multi_checkpoint_weights'], 'weights.{epoch:02d}.hdf5')
+        preffix = self.get_preffix()
 
+        print("training multi-image model: " + preffix)
+
+        filePath = os.path.join(self.params.directories['multi_checkpoint_weights'], 
+            preffix + '-epoch_' + '{epoch:02d}' + '-acc_' + '{acc:.4f}.hdf5')
+        
         checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, 
             save_weights_only=False, mode='auto', period=1)
-        
-        callbacks_list = [checkpoint]
+        callbacks_list = [checkpoint, FMOW_Callback()]
 
         model.fit_generator(train_datagen,
                             steps_per_epoch=int(math.ceil((len(codesTrainData) / self.params.batch_size))),
                             epochs=self.params.epochs, callbacks=callbacks_list,
-                            max_queue_size=20)
+                            max_queue_size=20,
+                            initial_epoch = 200 )#initial_epoch)
 
         model.save(self.params.files['multi_model'])
         
     def test(self):
+
+        if self.params.multi:
+            codesTestData = json.load(open(self.params.files['multi_test_struct']))
+            codesStats = json.load(open(self.params.files['cnn_codes_stats']))
+
         metadataStats = json.load(open(self.params.files['dataset_stats']))
     
         metadataMean = np.array(metadataStats['metadata_mean'])
         metadataMax = np.array(metadataStats['metadata_max'])
 
+        loaded_filename = None
         if self.params.args.load_model:
             model = load_model(self.params.args.load_model)
+            loaded_filename = os.path.basename(self.params.args.load_model)
         else:
-            model = get_cnn_model(self.params)
+            model = get_cnn_model(self.params) if not self.params.multi else get_multi_model(self.params, codesStats)
 
         if self.params.args.load_weights:
             model.load_weights(self.params.args.load_weights, by_name=True)
+            loaded_filename = os.path.basename(self.params.args.load_weights)
 
         model = multi_gpu_model(model, gpus=self.params.gpus)
 
         index = 0
         
         timestr = time.strftime("%Y%m%d-%H%M%S")
+
+        fid = open(os.path.join(self.params.directories['predictions'], 
+                'predictions-%s-%s.txt' % (loaded_filename[:-5], timestr)), 'w')
+
+        def walkdir(folder):
+            for root, dirs, files in os.walk(folder):
+                if len(files) > 0:
+                    yield (root, dirs, files)
         
-        fidCNN = open(os.path.join(self.params.directories['predictions'], 'predictions-cnn-%s.txt' % timestr), 'w')
+        num_sequences = 0
+        for _ in walkdir(self.params.directories['test_data']):
+            num_sequences += 1
         
-        for root, dirs, files in tqdm(os.walk(self.params.directories['test_data'])):
+        for root, dirs, files in tqdm(walkdir(self.params.directories['test_data']), total=num_sequences):
             if len(files) > 0:
                 imgPaths = []
                 metadataPaths = []
@@ -256,65 +296,101 @@ class FMOWBaseline:
                     underscores = [ind for ind,ltr in enumerate(metadataPath) if ltr == '_']
                     inds.append(int(metadataPath[underscores[-3]+1:underscores[-2]]))
                 inds = np.argsort(np.array(inds)).tolist()
+
+                if not self.params.multi:
+                    # single-image
                 
-                tta_flip_v = tta_flip_h = self.params.flips
+                    tta_flip_v = tta_flip_h = self.params.flips
 
-                currBatchSize = len(inds) * (2 if tta_flip_v else 1) * (2 if tta_flip_h else 1)
-                imgdata = np.zeros((currBatchSize, self.params.target_img_size, self.params.target_img_size, self.params.num_channels))
-                metadataFeatures = np.zeros((currBatchSize, self.params.metadata_length))
-                    
-                for ind in inds:
-                    features = np.array(json.load(open(metadataPaths[ind])))
+                    currBatchSize = len(inds) * (2 if tta_flip_v else 1) * (2 if tta_flip_h else 1)
+                    imgdata = np.zeros((currBatchSize, self.params.target_img_size, self.params.target_img_size, self.params.num_channels))
+                    metadataFeatures = np.zeros((currBatchSize, self.params.metadata_length))
+                        
+                    for ind in inds:
+                        features = np.array(json.load(open(metadataPaths[ind])))
 
-                    img = scipy.misc.imread(imgPaths[ind]) #image.load_img(imgPaths[ind])
-                    crop_size = self.params.target_img_size
-                    x0 = int(img.shape[1]/2 - crop_size/2)
-                    x1 = x0 + crop_size
-                    y0 = int(img.shape[0]/2 - crop_size/2)
-                    y1 = y0 + crop_size
+                        img = scipy.misc.imread(imgPaths[ind]) #image.load_img(imgPaths[ind])
+                        crop_size = self.params.target_img_size
+                        x0 = int(img.shape[1]/2 - crop_size/2)
+                        x1 = x0 + crop_size
+                        y0 = int(img.shape[0]/2 - crop_size/2)
+                        y1 = y0 + crop_size
 
-                    img = img[y0:y1, x0:x1, ...].astype(np.float32)
+                        img = img[y0:y1, x0:x1, ...].astype(np.float32)
 
-                    #show_image(img)
-                    #raw_input("press enter")
+                        #show_image(img)
+                        #raw_input("press enter")
 
-                    metadataFeatures[ind,:] = features
+                        metadataFeatures[ind,:] = features
 
-                    img = imagenet_utils.preprocess_input(img) / 255.
-                    imgdata[ind, ...] = img
+                        img = imagenet_utils.preprocess_input(img) / 255.
+                        imgdata[ind, ...] = img
 
-                    tta_idx = len(inds) + ind
-                    if tta_flip_v:
-                        imgdata[tta_idx,...] = flip_axis(img, 0)
-                        metadataFeatures[tta_idx,:] = transform_metadata(features, flip_h = False, flip_v=True)
-                        tta_idx += len(inds)
-
-                    if tta_flip_h:
-                        imgdata[tta_idx,...] = flip_axis(img, 1)
-                        metadataFeatures[tta_idx,:] = transform_metadata(features, flip_h = True, flip_v=False)
-                        tta_idx += len(inds)
-
+                        tta_idx = len(inds) + ind
                         if tta_flip_v:
-                            imgdata[tta_idx,...] = flip_axis(flip_axis(img, 1), 0)
-                            metadataFeatures[tta_idx,:] = transform_metadata(features, flip_h = True, flip_v=True)
+                            imgdata[tta_idx,...] = flip_axis(img, 0)
+                            metadataFeatures[tta_idx,:] = transform_metadata(features, flip_h = False, flip_v=True)
                             tta_idx += len(inds)
-   
-#                imgdata = imagenet_utils.preprocess_input(imgdata, mode='tf')
-                #imgdata = imgdata / 255.0
-                
-                if self.params.use_metadata:
-                    metadataFeatures = np.divide(metadataFeatures - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
-                    predictionsCNN = np.sum(model.predict([imgdata, metadataFeatures], batch_size=currBatchSize), axis=0)
+
+                        if tta_flip_h:
+                            imgdata[tta_idx,...] = flip_axis(img, 1)
+                            metadataFeatures[tta_idx,:] = transform_metadata(features, flip_h = True, flip_v=False)
+                            tta_idx += len(inds)
+
+                            if tta_flip_v:
+                                imgdata[tta_idx,...] = flip_axis(flip_axis(img, 1), 0)
+                                metadataFeatures[tta_idx,:] = transform_metadata(features, flip_h = True, flip_v=True)
+                                tta_idx += len(inds)
+                    
+                    if self.params.use_metadata:
+                        metadataFeatures = np.divide(metadataFeatures - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
+                        predictions = np.sum(model.predict([imgdata, metadataFeatures], batch_size=currBatchSize), axis=0)
+                    else:
+                        predictions = np.sum(model.predict(imgdata, batch_size=currBatchSize), axis=0)
                 else:
-                    predictionsCNN = np.sum(model.predict(imgdata, batch_size=currBatchSize), axis=0)
+                    # multi-image
+
+                    currBatchSize = len(inds)
+                    metadataFeatures = np.zeros((currBatchSize, self.params.metadata_length))
+
+                    codesIndex = 0
+                    code_index = '/'.join(root.split('/')[-3:])
+                    codesPaths = codesTestData[code_index]
+                    codesFeatures = []
+                    for ind in inds:
+
+                        features = np.array(json.load(open(metadataPaths[ind])))
+                        features = np.divide(features - metadataMean, metadataMax)
+                        metadataFeatures[ind,:] = features
+                        
+                        codesFeatures.append(json.load(open(codesPaths['cnn_codes_paths'][codesIndex])))
+                        codesIndex += 1
+
+                    if self.params.use_metadata:
+                        codesMetadata = np.zeros((1, codesStats['max_temporal'], self.params.cnn_multi_layer_length + self.params.metadata_length))
+                    else:
+                        codesMetadata = np.zeros((1, codesStats['max_temporal'], self.params.cnn_multi_layer_length))
+
+                    timestamps = []
+                    for codesIndex in range(currBatchSize):
+                        cnnCodes = codesFeatures[codesIndex]
+                        timestamp = (cnnCodes[4]-1970)*525600 + cnnCodes[5]*12*43800 + cnnCodes[6]*31*1440 + cnnCodes[7]*60
+                        timestamps.append(timestamp)
+                        cnnCodes = np.divide(cnnCodes - np.array(codesStats['codes_mean']), np.array(codesStats['codes_max']))
+                        codesMetadata[0,codesIndex,:] = cnnCodes
+                    
+                    sortedInds = sorted(range(len(timestamps)), key=lambda k:timestamps[k])
+                    codesMetadata[0,range(len(sortedInds)),:] = codesMetadata[0,sortedInds,:]
+
+                    predictions = model.predict(codesMetadata, batch_size=1)
                                 
             if len(files) > 0:
-                predCNN = np.argmax(predictionsCNN)
-                oursCNNStr = self.params.category_names[predCNN]
-                fidCNN.write('%d,%s\n' % (bbID,oursCNNStr))
+                prediction = np.argmax(predictions)
+                prediction_category = self.params.category_names[prediction]
+                fid.write('%d,%s\n' % (bbID,prediction_category))
                 index += 1
 
-        fidCNN.close()
+        fid.close()
 
     def generate_cnn_codes(self):
         """

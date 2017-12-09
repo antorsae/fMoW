@@ -50,6 +50,7 @@ parser.add_argument('-c', '--classifier', type=str, default='densenet', help='Ba
 parser.add_argument('-f', '--flips', action='store_true', help='Use horizontal/vertical flips augmentation')
 parser.add_argument('--freeze', type=int, default=0, help='Freeze first n CNN layers, e.g. --freeze 10')
 parser.add_argument('-pms', '--print-model-summary', action='store_true', help='Ditto')
+parser.add_argument('--img-suffix', type=str, default='rgb', help='When doing --prepare use _rgb or _msrgb images, e.g. --img-suffix msrgb')
 
 args = parser.parse_args()
 
@@ -76,6 +77,7 @@ classifier = args.classifier
 flips = args.flips
 freeze = args.freeze
 print_model_summary = args.print_model_summary
+multi = args.multi
 
 
 #DIRECTORIES AND FILES
