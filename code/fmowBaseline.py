@@ -18,9 +18,10 @@ limitations under the License.
 __author__ = 'jhuapl'
 __version__ = 0.1
 
+from sklearn.cross_validation import train_test_split
 import json
 from keras.optimizers import Adam, RMSprop
-from keras.callbacks import ModelCheckpoint, Callback
+from keras.callbacks import ModelCheckpoint, Callback, ReduceLROnPlateau
 from keras.preprocessing import image
 from keras.models import Model, load_model
 from keras.applications import VGG16,imagenet_utils
@@ -136,7 +137,18 @@ class FMOWBaseline:
         :return: 
         """
         
-        trainData = json.load(open(self.params.files['training_struct']))
+        allTrainingData = json.load(open(self.params.files['training_struct']))
+
+        # add 50% of the /val/ data (which has false_detection instances) to train dataset, leave rest for validation
+        trainData    = [_t for _t in allTrainingData if _t['features_path'].find('/val/') == -1]
+        allValidData = [_t for _t in allTrainingData if _t['features_path'].find('/val/') != -1]
+
+        addToTrainData, validData = train_test_split(allValidData , test_size=0.5)
+
+        trainData.extend(addToTrainData)
+
+        assert len(allTrainingData) == len(trainData) + len(validData)
+
         metadataStats = json.load(open(self.params.files['dataset_stats']))
 
         loaded_filename = None
@@ -157,32 +169,34 @@ class FMOWBaseline:
 
         model = multi_gpu_model(model, gpus=self.params.gpus)
 
-        import keras.losses
-        keras.losses.focal_loss = focal_loss
 
         if self.params.loss == 'focal':
+            import keras.losses
+            keras.losses.focal_loss = focal_loss
             loss = focal_loss
         else:
             loss = self.params.loss
 
         model.compile(optimizer=Adam(lr=self.params.learning_rate), loss=loss, metrics=['accuracy'])
-
-        train_datagen = img_metadata_generator(self.params, trainData, metadataStats)
         
         preffix = self.get_preffix()
 
         print("training single-image model: " + preffix)
 
         filePath = os.path.join(self.params.directories['cnn_checkpoint_weights'], 
-            preffix + '-epoch_' + '{epoch:02d}' + '-acc_' + '{acc:.4f}.hdf5')
+            preffix + '-epoch_' + '{epoch:02d}' + '-acc_' + '{acc:.4f}' + '-val_acc_' + '{val_acc:.4f}.hdf5')
 
         checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, save_weights_only=False, mode='auto')
-        callbacks_list = [checkpoint, FMOW_Callback()]
+        reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=1, min_lr=1e-7, epsilon = 0.0001, verbose=1)
 
-        model.fit_generator(train_datagen,
+        model.fit_generator(generator=img_metadata_generator(self.params, trainData, metadataStats),
             steps_per_epoch=int(math.ceil((len(trainData) / self.params.batch_size))),
             class_weight = self.get_class_weights() if self.params.weigthed else None,
-            epochs=self.params.epochs, callbacks=callbacks_list, initial_epoch = initial_epoch)
+            epochs=self.params.epochs, initial_epoch = initial_epoch,
+            callbacks=[checkpoint, FMOW_Callback(), reduce_lr], 
+            validation_data = img_metadata_generator(self.params, validData, metadataStats, class_aware_sampling = False, augmentation = False),
+            validation_steps = int(math.ceil((len(validData) / self.params.batch_size))),
+            )
 
         model.save(self.params.files['cnn_model'])
 
@@ -228,6 +242,7 @@ class FMOWBaseline:
         
         checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, 
             save_weights_only=False, mode='auto', period=1)
+
         callbacks_list = [checkpoint, FMOW_Callback()]
 
         model.fit_generator(train_datagen,
@@ -486,8 +501,7 @@ class FMOWBaseline:
                 batchIndex += 1
 
                 if batchIndex == batchSize:
-                    imgdata = imagenet_utils.preprocess_input(imgdata)
-                    imgdata = imgdata / 255.0
+                    imgdata = imagenet_utils.preprocess_input(imgdata) / 255.
 
                     if self.params.use_metadata:
                         cnnCodes = featuresModel.predict([imgdata,metadataFeatures], batch_size=batchSize)

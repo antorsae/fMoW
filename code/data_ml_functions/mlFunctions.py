@@ -121,7 +121,7 @@ def get_multi_model(params, codesStats):
     model.add(Dense(params.num_labels, activation='softmax'))
     return model
 
-def img_metadata_generator(params, data, metadataStats):
+def img_metadata_generator(params, data, metadataStats, class_aware_sampling = True, augmentation = True):
     """
     Custom generator that yields images or (image,metadata) batches and their 
     category labels (categorical format). 
@@ -133,37 +133,41 @@ def img_metadata_generator(params, data, metadataStats):
     
     N = len(data)
 
-    data_labels = [datum['category'] for datum in data]
-    label_to_idx = defaultdict(list)
-    for i, label in enumerate(data_labels):
-        label_to_idx[label].append(i)
-    running_label_to_idx = copy.deepcopy(label_to_idx)
+    if class_aware_sampling:
+        data_labels = [datum['category'] for datum in data]
+        label_to_idx = defaultdict(list)
+        for i, label in enumerate(data_labels):
+            label_to_idx[label].append(i)
+        running_label_to_idx = copy.deepcopy(label_to_idx)
 
     executor = ThreadPoolExecutor(max_workers=params.num_workers)
 
     while True:
         
-        # class-aware supersampling
-        idx = []
-        num_labels = len(label_to_idx)
-        for _ in range(N):
-            random_label = np.random.randint(num_labels)
-            if len(running_label_to_idx[random_label]) == 0:
-                running_label_to_idx[random_label] = copy.copy(label_to_idx[random_label])
-                random.shuffle(running_label_to_idx[random_label])
-            idx.append(running_label_to_idx[random_label].pop())
+        if class_aware_sampling:
+            # class-aware supersampling
+            idx = []
+            num_labels = len(label_to_idx)
+            for _ in range(N):
+                random_label = np.random.randint(num_labels)
+                if len(running_label_to_idx[random_label]) == 0:
+                    running_label_to_idx[random_label] = copy.copy(label_to_idx[random_label])
+                    random.shuffle(running_label_to_idx[random_label])
+                idx.append(running_label_to_idx[random_label].pop())
+        else:
+            idx = np.random.permutation(N)
 
         batchInds = get_batch_inds(params.batch_size, idx, N)
 
         for inds in batchInds:
             batchData = [data[ind] for ind in inds]
-            imgdata,metadata,labels = load_cnn_batch(params, batchData, metadataStats, executor)
+            imgdata,metadata,labels = load_cnn_batch(params, batchData, metadataStats, executor, augmentation)
             if params.use_metadata:
                 yield([imgdata,metadata],labels)
             else:
                 yield(imgdata,labels)
         
-def load_cnn_batch(params, batchData, metadataStats, executor):
+def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
     """
     Load batch of images and metadata and preprocess the data before returning.
     :param params: global parameters, used to find location of the dataset and json file
@@ -184,7 +188,7 @@ def load_cnn_batch(params, batchData, metadataStats, executor):
         currInput['target_img_size'] = params.target_img_size
         currInput['angle'] = params.angle
         currInput['flips'] = params.flips
-        task = partial(_load_batch_helper, currInput)
+        task = partial(_load_batch_helper, currInput, augmentation)
         futures.append(executor.submit(task))
 
     results = [future.result() for future in futures]
@@ -225,7 +229,7 @@ def transform_metadata(metadata, flip_h, flip_v, angle=0):
     assert all([i <= 1. and i >=0. for i in metadata[19:27]])
     return metadata
 
-def _load_batch_helper(inputDict):
+def _load_batch_helper(inputDict, augmentation):
     """
     Helper for load_cnn_batch that actually loads imagery and supports parallel processing
     :param inputDict: dict containing the data and metadataStats that will be used to load imagery
@@ -241,7 +245,7 @@ def _load_batch_helper(inputDict):
 
     target_img_size = inputDict['target_img_size']
 
-    if angle != 0.:
+    if angle != 0. and augmentation:
         patch_size = img.shape[0]
         patch_center = patch_size / 2
         sq2 = 1.4142135624 
@@ -275,7 +279,7 @@ def _load_batch_helper(inputDict):
 
     flip_h = flip_v = False
 
-    if inputDict['flips']:
+    if inputDict['flips'] and augmentation:
 
         flip_h = (np.random.random() < 0.5)
         flip_v = (np.random.random() < 0.5)
@@ -289,8 +293,8 @@ def _load_batch_helper(inputDict):
 
     #show_image(img.astype(np.uint8))
     #raw_input("Press enter")
-    metadata = transform_metadata(metadata, flip_h=flip_h, flip_v=flip_v, angle=angle)
-
+    if augmentation:
+        metadata = transform_metadata(metadata, flip_h=flip_h, flip_v=flip_v, angle=angle)
 
     img = imagenet_utils.preprocess_input(img) / 255.
 
@@ -302,7 +306,7 @@ def _load_batch_helper(inputDict):
     currOutput['labels'] = labels
     return currOutput
 
-def codes_metadata_generator(params, data, metadataStats, codesStats):
+def codes_metadata_generator(params, data, metadataStats, codesStats, class_aware_sampling = True):
     """
     Custom generator that yields a vector containign the 4096-d CNN codes output by ResNet50 and metadata features (if params set to use).
     :param params: global parameters, used to find location of the dataset and json file
@@ -313,27 +317,31 @@ def codes_metadata_generator(params, data, metadataStats, codesStats):
     
     N = len(data)
 
-    data_labels = [datum['category'] for datum in data.values()]
-    label_to_idx = defaultdict(list)
-    for i, label in enumerate(data_labels):
-        label_to_idx[label].append(i)
-    running_label_to_idx = copy.deepcopy(label_to_idx)
+    if class_aware_sampling:
+        data_labels = [datum['category'] for datum in data.values()]
+        label_to_idx = defaultdict(list)
+        for i, label in enumerate(data_labels):
+            label_to_idx[label].append(i)
+        running_label_to_idx = copy.deepcopy(label_to_idx)
 
     trainKeys = list(data.keys())
 
     executor = ThreadPoolExecutor(max_workers=params.num_workers)
     
     while True:
-        #idx = np.random.permutation(N)
-        # class-aware supersampling
-        idx = []
-        num_labels = len(label_to_idx)
-        for _ in range(N):
-            random_label = np.random.randint(num_labels)
-            if len(running_label_to_idx[random_label]) == 0:
-                running_label_to_idx[random_label] = copy.copy(label_to_idx[random_label])
-                random.shuffle(running_label_to_idx[random_label])
-            idx.append(running_label_to_idx[random_label].pop())
+        if class_aware_sampling:
+            #idx = np.random.permutation(N)
+            # class-aware supersampling
+            idx = []
+            num_labels = len(label_to_idx)
+            for _ in range(N):
+                random_label = np.random.randint(num_labels)
+                if len(running_label_to_idx[random_label]) == 0:
+                    running_label_to_idx[random_label] = copy.copy(label_to_idx[random_label])
+                    random.shuffle(running_label_to_idx[random_label])
+                idx.append(running_label_to_idx[random_label].pop())
+        else:
+            idx = np.random.permutation(N)
 
         batchInds = get_batch_inds(params.batch_size, idx, N)
 
