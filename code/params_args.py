@@ -36,27 +36,39 @@ parser.add_argument('--max-epoch', type=int, default=20, help='Epoch to run')
 
 ## 
 parser.add_argument('-d', '--dir-suffix', type=str, default='-r224', help='Suffix for directory names')
-parser.add_argument('-m', '--multi', action='store_true', help='Use multi model')
 parser.add_argument('--prepare', action='store_true', help='Prepare data')
 parser.add_argument('--train', action='store_true', help='Train model')
 parser.add_argument('--test', action='store_true', help='Evaluate model and generate predictions')
-parser.add_argument('--generate-cnn-codes', action='store_true', help='Generate CNN codes')
 parser.add_argument('-g', '--gpus', type=int, default=1, help='Number of GPUs to use')
 parser.add_argument('--loss', type=str, default='categorical_crossentropy', help='Loss function to use, i.e. categorical_crossentropy or focal')
-parser.add_argument('-a', '--angle', type=int, default=0, help='Angle range for rotation augmentation, e.g. -a 360')
-parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
 parser.add_argument('-w', '--weigthed', action='store_true', help='Use weights for more important classes as per Scoring here: https://community.topcoder.com/longcontest/?module=ViewProblemStatement&rd=16996&pm=14684')
-parser.add_argument('-c', '--classifier', type=str, default='densenet', help='Base classifier to use -m InceptionResNetV2|SEInceptionResNetV2|Xception|densenet')
-parser.add_argument('-f', '--flips', action='store_true', help='Use horizontal/vertical flips augmentation')
-parser.add_argument('--freeze', type=int, default=0, help='Freeze first n CNN layers, e.g. --freeze 10')
 parser.add_argument('-pms', '--print-model-summary', action='store_true', help='Ditto')
 parser.add_argument('--img-suffix', type=str, default='rgb', help='When doing --prepare use _rgb or _msrgb images, e.g. --img-suffix msrgb')
+parser.add_argument('-lu', '--leave-unbalanced', action='store_true', help='Do not use class-aware sampling (i.e. leave dataset unbalanced as-is)')
+
+parser.add_argument('-mm', '--mask-metadata', action='store_true', help='Mask some of the metadata attributes (e.g. minutes, bbox coords, etc.)')
+parser.add_argument('-c', '--classifier', type=str, default=None, help='Base classifier to use -m InceptionResNetV2|SEInceptionResNetV2|Xception|densenet or lstm|...')
+
+# single specific
+parser.add_argument('--generate-cnn-codes', action='store_true', help='Generate CNN codes')
+parser.add_argument('-a', '--angle', type=int, default=0, help='Angle range for rotation augmentation, e.g. -a 360')
+parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
+parser.add_argument('-f', '--flips', action='store_true', help='Use horizontal/vertical flips augmentation')
+parser.add_argument('--freeze', type=int, default=0, help='Freeze first n CNN layers, e.g. --freeze 10')
+
+# multi specific
+parser.add_argument('-m', '--multi', action='store_true', help='Use multi model')
+parser.add_argument('-td', '--temporal-dropout', type=float, default=0.3, help='Percentage of images to drop while training multi-image model')
+parser.add_argument('-mt', '--max-temporal', type=int, default=0, help='If specified caps max number of frames for multi-image model')
 
 args = parser.parse_args()
 
 image_format = 'jpg'
 cnn_last_layer_length  = 4096
 cnn_multi_layer_length = 1536 # 2208
+
+if args.classifier == None:
+	args.classifier = 'InceptionResNetV2' if not args.multi else 'lstm'
 	
 # PARSED PARAMS
 gpus = args.gpus
@@ -78,6 +90,10 @@ flips = args.flips
 freeze = args.freeze
 print_model_summary = args.print_model_summary
 multi = args.multi
+leave_unbalanced = args.leave_unbalanced
+mask_metadata = args.mask_metadata
+temporal_dropout = args.temporal_dropout
+max_temporal = args.max_temporal
 
 
 #DIRECTORIES AND FILES

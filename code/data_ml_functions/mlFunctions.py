@@ -21,7 +21,7 @@ __version__ = 0.1
 
 import json
 from keras.applications import VGG16, imagenet_utils, InceptionResNetV2, Xception, ResNet50
-from keras.layers import Dense,Input,Flatten,Dropout,LSTM, concatenate, Reshape
+from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, Reshape, Conv2D, MaxPooling2D, ConvLSTM2D, Activation
 from keras.models import Sequential,Model
 from keras.preprocessing import image
 from keras.utils.np_utils import to_categorical
@@ -110,15 +110,45 @@ def get_multi_model(params, codesStats):
         layerLength = params.cnn_multi_layer_length + params.metadata_length
     else:
         layerLength = params.cnn_multi_layer_length
+        layerShape  = params.cnn_multi_layer_shape
 
     print(codesStats['max_temporal'], layerLength)
     model = Sequential()
-    model.add(LSTM(256, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength), dropout=0.5))
-    model.add(LSTM(256, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength), dropout=0.5))
-    model.add(Flatten())
-#    model.add(Dense(512, activation='relu'))
-#    model.add(Dropout(0.5))
-    model.add(Dense(params.num_labels, activation='softmax'))
+    arch = params.classifier
+
+    if arch == 'lstm':
+        model.add(InstanceNormalization(axis=2, input_shape=(codesStats['max_temporal'], layerLength)))
+        model.add(LSTM(256, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength), dropout=0.5))
+        model.add(LSTM(256, return_sequences=True, dropout=0.5))
+        model.add(Flatten())
+        model.add(Dense(params.num_labels, activation='softmax'))
+    elif arch == 'lstm2':
+        model.add(InstanceNormalization(axis=2, input_shape=(codesStats['max_temporal'], layerLength)))
+        model.add(LSTM(256, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength)))
+        model.add(LSTM(params.num_labels, return_sequences=False, dropout=0.5))
+        model.add(Activation(activation='softmax'))
+#        model.add(Dense(params.num_labels, activation='softmax'))
+    elif arch == 'lstm3':
+        model.add(InstanceNormalization(axis=2, input_shape=(codesStats['max_temporal'], layershape[0], layershape[1], layershape[2] )))
+        #model.add(Reshape(target_shape=( codesStats['max_temporal'], 1, 1, layerLength)))
+        model.add(ConvLSTM2D(128, 3, return_sequences=True,  dropout=0.5))
+        model.add(ConvLSTM2D(params.num_labels,  3, return_sequences=False, dropout=0.5))
+        model.add(Flatten())
+        model.add(Activation(activation='softmax'))
+        #model.add(Dense(params.num_labels, activation='softmax'))
+    elif arch == 'gru':
+        model.add(GRU(128, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength), dropout=0.5))
+        model.add(GRU(128, return_sequences=True, input_shape=(codesStats['max_temporal'], layerLength), dropout=0.5))
+        model.add(GRU(params.num_labels, activation='softmax', return_sequences=False))
+    elif arch == 'pnet':
+        model.add(Reshape(target_shape=(codesStats['max_temporal'], layerLength, 1), input_shape=(codesStats['max_temporal'], layerLength)))
+        model.add(Conv2D(filters=1024,   kernel_size=(1, 1), activation='relu'))
+        model.add(Conv2D(filters=2048,   kernel_size=(1, 1), activation='relu'))
+        model.add(Conv2D(filters=4096,   kernel_size=(1, 1), activation='relu'))
+        model.add(MaxPooling2D(pool_size=(codesStats['max_temporal'], 1), padding='valid'))
+        model.add(Flatten())
+        model.add(Dense(512, activation='relu'))
+        model.add(Dense(params.num_labels, activation='softmax'))
     return model
 
 def img_metadata_generator(params, data, metadataStats, class_aware_sampling = True, augmentation = True):
@@ -148,6 +178,7 @@ def img_metadata_generator(params, data, metadataStats, class_aware_sampling = T
             # class-aware supersampling
             idx = []
             num_labels = len(label_to_idx)
+            assert num_labels == params.num_labels
             for _ in range(N):
                 random_label = np.random.randint(num_labels)
                 if len(running_label_to_idx[random_label]) == 0:
@@ -188,6 +219,7 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
         currInput['target_img_size'] = params.target_img_size
         currInput['angle'] = params.angle
         currInput['flips'] = params.flips
+        currInput['mask_metadata'] = params.mask_metadata
         task = partial(_load_batch_helper, currInput, augmentation)
         futures.append(executor.submit(task))
 
@@ -197,9 +229,6 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
         metadata[i,:] = result['metadata']
         imgdata[i, ...] = result['img']
         labels[i] = result['labels']
-        
-    #imgdata = imagenet_utils.preprocess_input(imgdata)
-    #imgdata = imgdata / 255.0
     
     labels = to_categorical(labels, params.num_labels)
 
@@ -227,6 +256,80 @@ def transform_metadata(metadata, flip_h, flip_v, angle=0):
     metadata[19:27] = list(np.fmod(metadata_angles + 2*360., 360.) / 360.)
 
     assert all([i <= 1. and i >=0. for i in metadata[19:27]])
+    return metadata
+
+def mask_metadata(metadata):
+    '''
+        features[0] = float(jsonData['gsd'])
+    x,y = utm_to_xy(jsonData['utm'])
+    features[1] = x
+    features[2] = y
+    features[3] = float(jsonData['cloud_cover']) / 100.0
+    date = dparser.parse(jsonData['timestamp'])
+    features[4] = float(date.year)
+    features[5] = float(date.month) / 12.0
+    features[6] = float(date.day) / 31.0
+    features[7] = float(date.hour) + float(date.minute)/60.0
+
+    if jsonData['scan_direction'].lower() == 'forward':
+        features[8] = 0.0
+    else:
+        features[8] = 1.0
+    features[9] = float(jsonData['pan_resolution_dbl'])
+    features[10] = float(jsonData['pan_resolution_start_dbl'])
+    features[11] = float(jsonData['pan_resolution_end_dbl'])
+    features[12] = float(jsonData['pan_resolution_min_dbl'])
+    features[13] = float(jsonData['pan_resolution_max_dbl'])
+    features[14] = float(jsonData['multi_resolution_dbl'])
+    features[15] = float(jsonData['multi_resolution_min_dbl'])
+    features[16] = float(jsonData['multi_resolution_max_dbl'])
+    features[17] = float(jsonData['multi_resolution_start_dbl'])
+    features[18] = float(jsonData['multi_resolution_end_dbl'])
+    features[19] = float(jsonData['target_azimuth_dbl']) / 360.0
+    features[20] = float(jsonData['target_azimuth_min_dbl']) / 360.0
+    features[21] = float(jsonData['target_azimuth_max_dbl']) / 360.0
+    features[22] = float(jsonData['target_azimuth_start_dbl']) / 360.0
+    features[23] = float(jsonData['target_azimuth_end_dbl']) / 360.0
+    features[24] = float(jsonData['sun_azimuth_dbl']) / 360.0
+    features[25] = float(jsonData['sun_azimuth_min_dbl']) / 360.0
+    features[26] = float(jsonData['sun_azimuth_max_dbl']) / 360.0
+    features[27] = float(jsonData['sun_elevation_min_dbl']) / 90.0
+    features[28] = float(jsonData['sun_elevation_dbl']) / 90.0
+    features[29] = float(jsonData['sun_elevation_max_dbl']) / 90.0
+    features[30] = float(jsonData['off_nadir_angle_dbl']) / 90.0
+    features[31] = float(jsonData['off_nadir_angle_min_dbl']) / 90.0
+    features[32] = float(jsonData['off_nadir_angle_max_dbl']) / 90.0
+    features[33] = float(jsonData['off_nadir_angle_start_dbl']) / 90.0
+    features[34] = float(jsonData['off_nadir_angle_end_dbl']) / 90.0
+    features[35] = float(bb['box'][2])
+    features[36] = float(bb['box'][3])
+    features[37] = float(jsonData['img_width'])
+    features[38] = float(jsonData['img_height'])
+    features[39] = float(date.weekday())
+    features[40] = min([features[35], features[36]]) / max([features[37], features[38]])
+    features[41] = features[35] / features[37]
+    features[42] = features[36] / features[38]
+    features[43] = date.second
+    if len(jsonData['bounding_boxes']) == 1:
+        features[44] = 1.0
+    else:
+        features[44] = 0.0
+    '''
+    masked_attributes = [ \
+        6,  # day
+        7,  # hour/min
+        35, # bbox loc
+        36, # bbox loc
+        37, # img_width
+        38, # img_height
+        39, # weekday
+        43, # second
+        44, # 1 bbox or more
+        ]
+
+    for to_mask in masked_attributes:
+        metadata[to_mask] = 0.
+
     return metadata
 
 def _load_batch_helper(inputDict, augmentation):
@@ -290,7 +393,6 @@ def _load_batch_helper(inputDict, augmentation):
         if flip_v:
             img = flip_axis(img, 0) # flips ^ into v 
 
-
     #show_image(img.astype(np.uint8))
     #raw_input("Press enter")
     if augmentation:
@@ -302,11 +404,13 @@ def _load_batch_helper(inputDict, augmentation):
     currOutput = {}
     currOutput['img'] = img
     metadata = np.divide(json.load(open(data['features_path'])) - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
+    if inputDict['mask_metadata']:
+        metadata = mask_metadata(metadata)   
     currOutput['metadata'] = metadata
     currOutput['labels'] = labels
     return currOutput
 
-def codes_metadata_generator(params, data, metadataStats, codesStats, class_aware_sampling = True):
+def codes_metadata_generator(params, data, metadataStats, codesStats, class_aware_sampling = True, temporal_dropout = True):
     """
     Custom generator that yields a vector containign the 4096-d CNN codes output by ResNet50 and metadata features (if params set to use).
     :param params: global parameters, used to find location of the dataset and json file
@@ -326,7 +430,7 @@ def codes_metadata_generator(params, data, metadataStats, codesStats, class_awar
 
     trainKeys = list(data.keys())
 
-    executor = ThreadPoolExecutor(max_workers=params.num_workers)
+    executor = ThreadPoolExecutor(max_workers=1)#params.num_workers)
     
     while True:
         if class_aware_sampling:
@@ -334,6 +438,7 @@ def codes_metadata_generator(params, data, metadataStats, codesStats, class_awar
             # class-aware supersampling
             idx = []
             num_labels = len(label_to_idx)
+            assert num_labels == params.num_labels
             for _ in range(N):
                 random_label = np.random.randint(num_labels)
                 if len(running_label_to_idx[random_label]) == 0:
@@ -347,10 +452,10 @@ def codes_metadata_generator(params, data, metadataStats, codesStats, class_awar
 
         for inds in batchInds:
             batchKeys = [trainKeys[ind] for ind in inds]
-            codesMetadata, labels = load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor)
+            codesMetadata, labels = load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor, temporal_dropout)
             yield(codesMetadata,labels)
         
-def load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor):
+def load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor, temporal_dropout):
     """
     Load batch of CNN codes + metadata and preprocess the data before returning.
     :param params: global parameters, used to find location of the dataset and json file
@@ -364,7 +469,7 @@ def load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor
     if params.use_metadata:
         codesMetadata = np.zeros((params.batch_size, codesStats['max_temporal'], params.cnn_multi_layer_length + params.metadata_length))
     else:
-        codesMetadata = np.zeros((params.batch_size, codesStats['max_temporal'], params.cnn_multi_layer_length))
+        codesMetadata = np.zeros((params.batch_size, codesStats['max_temporal'], params.cnn_multi_layer_shape[0], params.cnn_multi_layer_shape[1], params.cnn_multi_layer_shape[2]))
 
     labels = np.zeros(params.batch_size)
 
@@ -373,9 +478,12 @@ def load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor
         currInput = {}
         currInput['currData'] = data[key]
         currInput['lastLayerLength'] = codesMetadata.shape[2]
+        currInput['lastLayerShape'] = params.cnn_multi_layer_shape
         currInput['codesStats'] = codesStats
         currInput['use_metadata'] = params.use_metadata
         currInput['metadataStats'] = metadataStats
+        currInput['mask_metadata'] = params.mask_metadata
+        currInput['temporal_dropout'] = temporal_dropout
         labels[i] = data[key]['category']
 
         task = partial(_load_lstm_batch_helper, currInput)
@@ -394,19 +502,40 @@ def _load_lstm_batch_helper(inputDict):
 
     currData = inputDict['currData']
     codesStats = inputDict['codesStats']
+    metadataStats = inputDict['metadataStats']
     currOutput = {}
 
     codesMetadata = np.zeros((codesStats['max_temporal'], inputDict['lastLayerLength']))
-
     timestamps = []
-    for codesIndex in range(len(currData['cnn_codes_paths'])):
-        cnnCodes = json.load(open(currData['cnn_codes_paths'][codesIndex]))
+
+    temporal_dropout = inputDict['temporal_dropout']
+    n_codes = len(currData['cnn_codes_paths'])
+    n_codes_indexes = range(n_codes)
+    if n_codes > 3 and temporal_dropout != 0:
+        n_codes_to_train = int(math.ceil(n_codes * (1 - np.random.rand() * temporal_dropout)))
+        n_codes_to_train = max(n_codes_to_train, 3)
+        n_codes_indexes = random.sample(n_codes_indexes, n_codes_to_train)
+
+    if len(n_codes_indexes) > codesStats['max_temporal']:
+        n_codes_indexes = n_codes_indexes[:codesStats['max_temporal']]      
+
+    for i, codesIndex in enumerate(n_codes_indexes):
+        #cnnCodes = json.load(open(currData['cnn_codes_paths'][codesIndex]))
+        cnnCodes = np.load(jcurrData['cnn_codes_paths'][codesIndex])
+        metadata = json.load(open(currData['metadata_paths'][codesIndex]))
         # compute a timestamp for temporally sorting
-        timestamp = (cnnCodes[4]-1970)*525600 + cnnCodes[5]*12*43800 + cnnCodes[6]*31*1440 + cnnCodes[7]*60
+        timestamp = (metadata[4]-1970)*525600 + metadata[5]*12*43800 + metadata[6]*31*1440 + metadata[7]*60
         timestamps.append(timestamp)
 
         cnnCodes = np.divide(cnnCodes - np.array(codesStats['codes_mean']), np.array(codesStats['codes_max']))
-        codesMetadata[codesIndex,:] = cnnCodes
+        metadata = np.divide(metadata - np.array(metadataStats['metadata_mean']), np.array(metadataStats['metadata_max']))
+
+        if inputDict['use_metadata']:
+            if inputDict['mask_metadata']:
+                metadata = mask_metadata(metadata)
+            codesMetadata[i,:] = np.concatenate((cnnCodes, metadata), axis=0)
+        else:
+            codesMetadata[i,...] = cnnCodes
 
     sortedInds = sorted(range(len(timestamps)), key=lambda k:timestamps[k])
     codesMetadata[range(len(sortedInds)),:] = codesMetadata[sortedInds,:]

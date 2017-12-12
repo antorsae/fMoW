@@ -25,7 +25,7 @@ from keras.callbacks import ModelCheckpoint, Callback, ReduceLROnPlateau
 from keras.preprocessing import image
 from keras.models import Model, load_model
 from keras.applications import VGG16,imagenet_utils
-from data_ml_functions.mlFunctions import get_cnn_model, get_multi_model,img_metadata_generator, rotate, transform_metadata, codes_metadata_generator
+from data_ml_functions.mlFunctions import get_cnn_model, get_multi_model,img_metadata_generator, rotate, transform_metadata, mask_metadata, codes_metadata_generator
 from data_ml_functions.dataFunctions import prepare_data,calculate_class_weights, flip_axis
 import numpy as np
 import os
@@ -33,6 +33,7 @@ import os
 from data_ml_functions.mlFunctions import load_cnn_batch
 from data_ml_functions.dataFunctions import get_batch_inds
 from multi_gpu_keras import multi_gpu_model
+from keras import backend as K
 
 import time
 from tqdm import tqdm
@@ -43,6 +44,8 @@ from data_ml_functions.iterm import show_image
 import math
 import random
 import re
+from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
+
 
 def focal_loss(target, output, gamma=2):
     output /= K.sum(output, axis=-1, keepdims=True)
@@ -50,16 +53,40 @@ def focal_loss(target, output, gamma=2):
     output = K.clip(output, eps, 1. - eps)
     return -K.sum(K.pow(1. - output, gamma) * target * K.log(output), axis=-1)
 
+def true_pos(y_true, y_pred):
+    return K.sum(y_true * K.round(y_pred))
+
+def false_pos(y_true, y_pred):
+    return K.sum(y_true * (1. - K.round(y_pred)))
+
+def false_neg(y_true, y_pred):
+    return K.sum((1. - y_true) * K.round(y_pred))
+
+def precision(y_true, y_pred):
+    return true_pos(y_true, y_pred) / (true_pos(y_true, y_pred) + false_pos(y_true, y_pred))
+
+def recall(y_true, y_pred):
+    return true_pos(y_true, y_pred) / (true_pos(y_true, y_pred) + false_neg(y_true, y_pred))
+
+category_weights = None
+
 class FMOW_Callback(Callback):
 
     def __init__(self):
         super(Callback, self).__init__()
 
- 
     def on_epoch_begin(self, epoch, logs={}):
         np.random.seed(epoch)
         random.seed(epoch)
         return
+
+    def on_epoch_end(self, epoch, logs={}):
+#        print(logs)
+#        y_pred_val = self.model.predict(self.x_val)
+#        f1 = f1_score(self.y_val, y_pred_val, sample_weight=category_weights)
+#        print(f1)        
+        return
+ 
 
 class FMOWBaseline:
     def __init__(self, params=None, argv=None):
@@ -68,10 +95,15 @@ class FMOWBaseline:
         :param params: global parameters, used to find location of the dataset and json file
         :return: 
         """
+        global category_weights
+
         self.params = params
+        category_weights = self.get_class_weights(return_array=True)
+
 
         np.random.seed(0)
         random.seed(0)
+
                 
         if self.params.use_metadata:
             self.params.files['cnn_model'] = os.path.join(self.params.directories['cnn_models'], 'cnn_model_with_metadata.model')
@@ -85,7 +117,7 @@ class FMOWBaseline:
             self.params.files['multi_training_struct'] = os.path.join(self.params.directories['working'], 'multi_training_struct_no_metadata.json')
             self.params.files['multi_test_struct'] = os.path.join(self.params.directories['working'], 'multi_test_struct_no_metadata.json')
 
-    def get_class_weights(self):
+    def get_class_weights(self, return_array=False):
         class_weights = {}
 
         low_impact = [ 'wind_farm', 'tunnel_opening', 'solar_farm', 'nuclear_powerplant', 'military_facility', 'crop_field', 
@@ -101,23 +133,37 @@ class FMOWBaseline:
         for category in high_impact:
             class_weights[self.params.category_names.index(category)] = 1.4
 
+        class_weights[self.params.category_names.index('false_detection')] = 0.
+
+        if return_array:
+            class_weights_array = [ ]
+            for cat_id in range(self.params.num_labels):
+                class_weights_array.append( class_weights[cat_id])
+            return class_weights_array
+
         return class_weights
 
     def get_preffix(self):
         preffix_pairs = [ \
             'multi' if self.params.multi else 'cnn', \
+            'metadata' if self.params.use_metadata else 'no_metadata', \
             'd_' + self.params.directories_suffix, \
-            'c_' + self.params.classifier if not self.params.multi else '', \
+            'c_' + self.params.classifier, \
             'lr_' + str(self.params.learning_rate), \
-            'b_' + str(self.params.batch_size), 'a_' + str(self.params.angle), 
-            'freeze_' + str(self.params.freeze), \
-            'w_' if self.params.weigthed else '', \
+            'lu' if self.params.leave_unbalanced else '', \
+            'mm' if self.params.mask_metadata else '', \
+            'b_' + str(self.params.batch_size), \
+            'td_' + str(self.params.temporal_dropout) if self.params.multi else '', \
+            'a_' + str(self.params.angle) if not self.params.multi else '', \
+            'freeze_' + str(self.params.freeze) if not self.params.multi else '', \
+            'w' if self.params.weigthed else '', \
             'loss_' + self.params.loss if self.params.loss != 'categorical_crossentropy' else '', \
-            'f_' if self.params.flips else '', 'w_' if self.params.weigthed else '' \
+            'f' if self.params.flips else '' if not self.params.multi else '', 
+            'w_' if self.params.weigthed else '' \
             ]
 
         preffix_pairs = [x for x in preffix_pairs if x != '']
-        
+
         preffix = '-'.join(preffix_pairs)
 
         return preffix
@@ -177,7 +223,9 @@ class FMOWBaseline:
         else:
             loss = self.params.loss
 
-        model.compile(optimizer=Adam(lr=self.params.learning_rate), loss=loss, metrics=['accuracy'])
+        model.compile(optimizer=Adam(lr=self.params.learning_rate), 
+            loss=loss, 
+            metrics=['accuracy'])
         
         preffix = self.get_preffix()
 
@@ -189,13 +237,14 @@ class FMOWBaseline:
         checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, save_weights_only=False, mode='auto')
         reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=1, min_lr=1e-7, epsilon = 0.0001, verbose=1)
 
-        model.fit_generator(generator=img_metadata_generator(self.params, trainData, metadataStats),
+        model.fit_generator(generator=img_metadata_generator(self.params, trainData, metadataStats, class_aware_sampling = not self.params.leave_unbalanced),
             steps_per_epoch=int(math.ceil((len(trainData) / self.params.batch_size))),
             class_weight = self.get_class_weights() if self.params.weigthed else None,
             epochs=self.params.epochs, initial_epoch = initial_epoch,
             callbacks=[checkpoint, FMOW_Callback(), reduce_lr], 
             validation_data = img_metadata_generator(self.params, validData, metadataStats, class_aware_sampling = False, augmentation = False),
             validation_steps = int(math.ceil((len(validData) / self.params.batch_size))),
+            shuffle=False,
             )
 
         model.save(self.params.files['cnn_model'])
@@ -207,8 +256,27 @@ class FMOWBaseline:
         :return: 
         """
 
-        codesTrainData = json.load(open(self.params.files['multi_training_struct']))
+        allCodesTrainingData = json.load(open(self.params.files['multi_training_struct']))
+
+        # add 50% of the /val/ data (which has false_detection instances) to train dataset, leave rest for validation
+        codesTrainData = { }
+        codesValidData = { }
+
+        for k,v in allCodesTrainingData.iteritems():
+            if k.startswith('val/'):
+                if np.random.randint(2):
+                    codesTrainData[k] = v
+                else:
+                    codesValidData[k] = v
+            else:
+                codesTrainData[k] = v
+
+        assert len(allCodesTrainingData) == len(codesTrainData) + len(codesValidData)
+
         codesStats = json.load(open(self.params.files['cnn_codes_stats']))
+        if self.params.max_temporal != 0:
+            codesStats['max_temporal'] = self.params.max_temporal
+
         metadataStats = json.load(open(self.params.files['dataset_stats']))
         
         loaded_filename = None
@@ -230,26 +298,32 @@ class FMOWBaseline:
         model = multi_gpu_model(model, gpus=self.params.gpus)
 
         model.compile(optimizer=RMSprop(lr=self.params.learning_rate), loss='categorical_crossentropy', metrics=['accuracy'])
-
-        train_datagen = codes_metadata_generator(self.params, codesTrainData, metadataStats, codesStats)
         
         preffix = self.get_preffix()
 
         print("training multi-image model: " + preffix)
 
         filePath = os.path.join(self.params.directories['multi_checkpoint_weights'], 
-            preffix + '-epoch_' + '{epoch:02d}' + '-acc_' + '{acc:.4f}.hdf5')
+            preffix + '-epoch_' + '{epoch:02d}' + '-acc_' + '{acc:.4f}' + '-val_acc_' + '{val_acc:.4f}.hdf5')
         
         checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, 
             save_weights_only=False, mode='auto', period=1)
+        reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=1, min_lr=1e-7, epsilon = 0.0001, verbose=1)
 
-        callbacks_list = [checkpoint, FMOW_Callback()]
-
-        model.fit_generator(train_datagen,
+        model.fit_generator(generator=codes_metadata_generator(self.params, \
+                                                                codesTrainData, metadataStats, codesStats, \
+                                                                class_aware_sampling = not self.params.leave_unbalanced, \
+                                                                temporal_dropout = self.params.temporal_dropout),
                             steps_per_epoch=int(math.ceil((len(codesTrainData) / self.params.batch_size))),
-                            epochs=self.params.epochs, callbacks=callbacks_list,
-                            max_queue_size=20,
-                            initial_epoch = 200 )#initial_epoch)
+                            epochs=self.params.epochs, 
+                            callbacks=[checkpoint, FMOW_Callback(), reduce_lr],
+                            initial_epoch = initial_epoch,
+                            validation_data = codes_metadata_generator(self.params, \
+                                                                        codesValidData, metadataStats, codesStats, \
+                                                                        class_aware_sampling = False,\
+                                                                        temporal_dropout = 0.),
+                            validation_steps = int(math.ceil((len(codesValidData) / self.params.batch_size))),
+                            )
 
         model.save(self.params.files['multi_model'])
         
@@ -258,7 +332,9 @@ class FMOWBaseline:
         if self.params.multi:
             codesTestData = json.load(open(self.params.files['multi_test_struct']))
             codesStats = json.load(open(self.params.files['cnn_codes_stats']))
-
+            if self.params.max_temporal != 0:
+                codesStats['max_temporal'] = self.params.max_temporal
+            
         metadataStats = json.load(open(self.params.files['dataset_stats']))
     
         metadataMean = np.array(metadataStats['metadata_mean'])
@@ -359,6 +435,10 @@ class FMOWBaseline:
                     
                     if self.params.use_metadata:
                         metadataFeatures = np.divide(metadataFeatures - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
+                        if self.params.mask_metadata:
+                            for ind in inds:
+                                metadataFeatures[ind] = mask_metadata(metadataFeatures[ind])
+
                         predictions = np.sum(model.predict([imgdata, metadataFeatures], batch_size=currBatchSize), axis=0)
                     else:
                         predictions = np.sum(model.predict(imgdata, batch_size=currBatchSize), axis=0)
@@ -375,7 +455,6 @@ class FMOWBaseline:
                     for ind in inds:
 
                         features = np.array(json.load(open(metadataPaths[ind])))
-                        features = np.divide(features - metadataMean, metadataMax)
                         metadataFeatures[ind,:] = features
                         
                         codesFeatures.append(json.load(open(codesPaths['cnn_codes_paths'][codesIndex])))
@@ -389,19 +468,32 @@ class FMOWBaseline:
                     timestamps = []
                     for codesIndex in range(currBatchSize):
                         cnnCodes = codesFeatures[codesIndex]
-                        timestamp = (cnnCodes[4]-1970)*525600 + cnnCodes[5]*12*43800 + cnnCodes[6]*31*1440 + cnnCodes[7]*60
+                        metadata = metadataFeatures[codesIndex]
+                        #print(metadata)
+                        timestamp = (metadata[4]-1970)*525600 + metadata[5]*12*43800 + metadata[6]*31*1440 + metadata[7]*60
                         timestamps.append(timestamp)
                         cnnCodes = np.divide(cnnCodes - np.array(codesStats['codes_mean']), np.array(codesStats['codes_max']))
-                        codesMetadata[0,codesIndex,:] = cnnCodes
+                        metadata = np.divide(metadata - metadataMean, metadataMax)
+                        #print(metadata)
+
+                        if self.params.use_metadata:
+                            if self.params.mask_metadata:
+                                metadata = mask_metadata(metadata)
+                            codesMetadata[0,codesIndex,:] = np.concatenate((cnnCodes, metadata), axis=0)
+                        else:
+                            codesMetadata[0,codesIndex,:] = cnnCodes
                     
                     sortedInds = sorted(range(len(timestamps)), key=lambda k:timestamps[k])
                     codesMetadata[0,range(len(sortedInds)),:] = codesMetadata[0,sortedInds,:]
-
                     predictions = model.predict(codesMetadata, batch_size=1)
                                 
             if len(files) > 0:
                 prediction = np.argmax(predictions)
                 prediction_category = self.params.category_names[prediction]
+                #print(predictions)
+                #print(prediction)
+                #print(prediction_category)
+                #assert False
                 fid.write('%d,%s\n' % (bbID,prediction_category))
                 index += 1
 
@@ -427,7 +519,11 @@ class FMOWBaseline:
         if self.params.args.load_weights:
             model.load_weights(self.params.args.load_weights, by_name=True)
 
-        featuresModel = Model(model.inputs, model.layers[-6].output)
+        features_layer_index = -3
+
+        featuresModel = Model(model.inputs, model.layers[features_layer_index].output)
+
+        #assert model.layers[features_layer_index].output.shape[1] == self.params.cnn_multi_layer_length
 
         if self.params.print_model_summary:
             featuresModel.summary()
@@ -494,9 +590,7 @@ class FMOWBaseline:
 
                 img = img[y0:y1, x0:x1, ...].astype(np.float32)
 
-                imgdata[batchIndex,...] = img #image.img_to_array(image.load_img(currData['img_path']))
-
-                # imgdata[batchIndex,:,:,:] = image.img_to_array(image.load_img(currData['img_path']))
+                imgdata[batchIndex,...] = img 
 
                 batchIndex += 1
 
@@ -510,19 +604,19 @@ class FMOWBaseline:
 
                     for codeIndex,currCodes in enumerate(cnnCodes):
                         currBasePath = tmpBasePaths[codeIndex]
-                        outFile = os.path.join(outDir, '%07d.json' % index)
+                        #outFile = os.path.join(outDir, '%07d.npy' % index)
+                        outFile = os.path.join(outDir, '%07d' % index)
                         index += 1
-                        json.dump(currCodes.tolist(), open(outFile, 'w'))
+                        np.save(outFile, currCodes)
+                        #json.dump(currCodes.tolist(), open(outFile, 'w'))
                         if currBasePath not in codesData.keys():
                             codesData[currBasePath] = {}
                             codesData[currBasePath]['cnn_codes_paths'] = []
-                            if self.params.use_metadata:
-                                codesData[currBasePath]['metadata_paths'] = []
+                            codesData[currBasePath]['metadata_paths'] = []
                             if isTrain:
                                 codesData[currBasePath]['category'] = tmpCategories[codeIndex]
                         codesData[currBasePath]['cnn_codes_paths'].append(outFile)
-                        if self.params.use_metadata:
-                            codesData[currBasePath]['metadata_paths'].append(tmpFeaturePaths[codeIndex])
+                        codesData[currBasePath]['metadata_paths'].append(tmpFeaturePaths[codeIndex])
                         if isTrain:
                             allTrainCodes.append(currCodes)
                         initBatch = True
