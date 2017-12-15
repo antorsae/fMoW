@@ -48,6 +48,8 @@ parser.add_argument('-lu', '--leave-unbalanced', action='store_true', help='Do n
 
 parser.add_argument('-mm', '--mask-metadata', action='store_true', help='Mask some of the metadata attributes (e.g. minutes, bbox coords, etc.)')
 parser.add_argument('-c', '--classifier', type=str, default=None, help='Base classifier to use -m InceptionResNetV2|SEInceptionResNetV2|Xception|densenet or lstm|...')
+parser.add_argument('-ifp', '--image-format-processed', type=str, default='jpg', help='Image format for output --prepare (models will be trained/evaluated with that output) -ig jpg|png')
+
 
 # single specific
 parser.add_argument('--generate-cnn-codes', action='store_true', help='Generate CNN codes')
@@ -63,7 +65,6 @@ parser.add_argument('-mt', '--max-temporal', type=int, default=0, help='If speci
 
 args = parser.parse_args()
 
-image_format = 'jpg'
 cnn_last_layer_length  = 4096
 cnn_multi_layer_length = 1536 # 2208
 
@@ -94,7 +95,8 @@ leave_unbalanced = args.leave_unbalanced
 mask_metadata = args.mask_metadata
 temporal_dropout = args.temporal_dropout
 max_temporal = args.max_temporal
-
+image_format_processed = args.image_format_processed
+image_format_dataset = 'jpg'
 
 #DIRECTORIES AND FILES
 directories = {}

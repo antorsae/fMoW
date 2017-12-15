@@ -43,9 +43,8 @@ import math
 
 from data_ml_functions.iterm import show_image
 
-from data_ml_functions.keras_squeeze_excite_network.se_inception_resnet_v2 import SEInceptionResNetV2
-
-from data_ml_functions.DenseNet import densenet
+#from data_ml_functions.keras_squeeze_excite_network.se_inception_resnet_v2 import SEInceptionResNetV2
+#from data_ml_functions.DenseNet import densenet
 
 def get_cnn_model(params):   
     """

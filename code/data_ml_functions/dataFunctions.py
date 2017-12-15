@@ -55,7 +55,7 @@ def prepare_data(params):
     executor = ThreadPoolExecutor(max_workers=params.num_workers)
     futures = []
     paramsDict = vars(params)
-    keysToKeep = ['image_format', 'target_img_size', 'metadata_length', 'category_names', 'context_factor']
+    keysToKeep = ['image_format_dataset', 'image_format_processed', 'target_img_size', 'metadata_length', 'category_names', 'context_factor']
     paramsDict = {keepKey: paramsDict[keepKey] for keepKey in keysToKeep}
     
     results = []
@@ -125,7 +125,7 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
     noResult = [(None, None, None)]
     baseName = file[:-5]
 
-    imgFile = baseName + '.' + params.image_format
+    imgFile = baseName + '.' + params.image_format_dataset
         
     if not os.path.isfile(os.path.join(root, imgFile)):
         print(os.path.join(root, imgFile))
@@ -159,7 +159,7 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
                     pass
 
         featuresPath = os.path.join(currOut, baseName + '_features.json')
-        imgPath = os.path.join(currOut, imgFile)
+        imgPath = os.path.join(currOut,  baseName + '.' + params.image_format_processed)
 
         if not os.path.isfile(imgPath):
 

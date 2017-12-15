@@ -18,7 +18,7 @@ limitations under the License.
 __author__ = 'jhuapl'
 __version__ = 0.1
 
-from sklearn.cross_validation import train_test_split
+from sklearn.model_selection import train_test_split
 import json
 from keras.optimizers import Adam, RMSprop
 from keras.callbacks import ModelCheckpoint, Callback, ReduceLROnPlateau
@@ -235,7 +235,7 @@ class FMOWBaseline:
             preffix + '-epoch_' + '{epoch:02d}' + '-acc_' + '{acc:.4f}' + '-val_acc_' + '{val_acc:.4f}.hdf5')
 
         checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, save_weights_only=False, mode='auto')
-        reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=1, min_lr=1e-7, epsilon = 0.0001, verbose=1)
+        reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=1, min_lr=1e-7, epsilon = 0.01, verbose=1)
 
         model.fit_generator(generator=img_metadata_generator(self.params, trainData, metadataStats, class_aware_sampling = not self.params.leave_unbalanced),
             steps_per_epoch=int(math.ceil((len(trainData) / self.params.batch_size))),
@@ -308,7 +308,7 @@ class FMOWBaseline:
         
         checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, 
             save_weights_only=False, mode='auto', period=1)
-        reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=1, min_lr=1e-7, epsilon = 0.0001, verbose=1)
+        reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=1, min_lr=1e-7, epsilon = 0.01, verbose=1)
 
         model.fit_generator(generator=codes_metadata_generator(self.params, \
                                                                 codesTrainData, metadataStats, codesStats, \
