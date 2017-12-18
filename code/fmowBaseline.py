@@ -45,7 +45,7 @@ import math
 import random
 import re
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
-
+import hickle
 
 def focal_loss(target, output, gamma=2):
     output /= K.sum(output, axis=-1, keepdims=True)
@@ -150,15 +150,18 @@ class FMOWBaseline:
             'd_' + self.params.directories_suffix, \
             'c_' + self.params.classifier, \
             'lr_' + str(self.params.learning_rate), \
+            'amsgrad_' if self.params.amsgrad else '', \
             'lu' if self.params.leave_unbalanced else '', \
             'mm' if self.params.mask_metadata else '', \
+            'nm' if self.params.norm_metadata else '', \
             'b_' + str(self.params.batch_size), \
             'td_' + str(self.params.temporal_dropout) if self.params.multi else '', \
             'a_' + str(self.params.angle) if not self.params.multi else '', \
             'freeze_' + str(self.params.freeze) if not self.params.multi else '', \
             'w' if self.params.weigthed else '', \
             'loss_' + self.params.loss if self.params.loss != 'categorical_crossentropy' else '', \
-            'f' if self.params.flips else '' if not self.params.multi else '', 
+            'fns' if self.params.flip_north_south else '' if not self.params.multi else '', 
+            'few' if self.params.flip_east_west else '' if not self.params.multi else '', 
             'w_' if self.params.weigthed else '' \
             ]
 
@@ -223,7 +226,7 @@ class FMOWBaseline:
         else:
             loss = self.params.loss
 
-        model.compile(optimizer=Adam(lr=self.params.learning_rate), 
+        model.compile(optimizer=Adam(lr=self.params.learning_rate, amsgrad=self.params.amsgrad), 
             loss=loss, 
             metrics=['accuracy'])
         
@@ -357,8 +360,11 @@ class FMOWBaseline:
         
         timestr = time.strftime("%Y%m%d-%H%M%S")
 
-        fid = open(os.path.join(self.params.directories['predictions'], 
-                'predictions-%s-%s.txt' % (loaded_filename[:-5], timestr)), 'w')
+        prediction_name_preffix = os.path.join(self.params.directories['predictions'], 
+                'predictions-%s-%s' % (loaded_filename[:-5], timestr))
+        fid = open(prediction_name_preffix + '.txt', 'w')
+
+        predictions_map = { }
 
         def walkdir(folder):
             for root, dirs, files in os.walk(folder):
@@ -377,7 +383,7 @@ class FMOWBaseline:
                 bbID = int(root[slashes[-1]+1:])
                 
             for file in files:
-                if file.endswith('.jpg'):
+                if file.endswith(self.params.image_format_processed):
                     imgPaths.append(os.path.join(root,file))
                     metadataPaths.append(os.path.join(root, file[:-4]+'_features.json'))
                     
@@ -391,7 +397,8 @@ class FMOWBaseline:
                 if not self.params.multi:
                     # single-image
                 
-                    tta_flip_v = tta_flip_h = self.params.flips
+                    tta_flip_v = self.params.flip_north_south
+                    tta_flip_h = self.params.flip_east_west
 
                     currBatchSize = len(inds) * (2 if tta_flip_v else 1) * (2 if tta_flip_h else 1)
                     imgdata = np.zeros((currBatchSize, self.params.target_img_size, self.params.target_img_size, self.params.num_channels))
@@ -439,9 +446,13 @@ class FMOWBaseline:
                             for ind in inds:
                                 metadataFeatures[ind] = mask_metadata(metadataFeatures[ind])
 
-                        predictions = np.sum(model.predict([imgdata, metadataFeatures], batch_size=currBatchSize), axis=0)
+                        _predictions = model.predict([imgdata, metadataFeatures], batch_size=currBatchSize)
                     else:
-                        predictions = np.sum(model.predict(imgdata, batch_size=currBatchSize), axis=0)
+                        _predictions = model.predict(imgdata, batch_size=currBatchSize)
+
+                    predictions_map[bbID] = _predictions
+                    predictions  = np.sum(_predictions, axis=0) 
+
                 else:
                     # multi-image
 
@@ -495,6 +506,7 @@ class FMOWBaseline:
                 #print(prediction_category)
                 #assert False
                 fid.write('%d,%s\n' % (bbID,prediction_category))
+                hickle.dump(predictions_map, prediction_name_preffix + ".hkl")
                 index += 1
 
         fid.close()

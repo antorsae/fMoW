@@ -20,7 +20,7 @@ __author__ = 'jhuapl'
 __version__ = 0.1
 
 import json
-from keras.applications import VGG16, imagenet_utils, InceptionResNetV2, Xception, ResNet50
+from keras.applications import VGG16, imagenet_utils, InceptionResNetV2, Xception, ResNet50, NASNetMobile, NASNetLarge
 from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, Reshape, Conv2D, MaxPooling2D, ConvLSTM2D, Activation
 from keras.models import Sequential,Model
 from keras.preprocessing import image
@@ -80,7 +80,7 @@ def get_cnn_model(params):
         auxiliary_input_norm = InstanceNormalization(axis=3, name='ins_norm_aux_input')(auxiliary_input_norm)
         auxiliary_input_norm = Flatten()(auxiliary_input_norm) #if params.classifier != 'densenet' else auxiliary_input
 
-        modelStruct = concatenate([modelStruct, auxiliary_input_norm])
+        modelStruct = concatenate([modelStruct, auxiliary_input_norm if params.norm_metadata else auxiliary_input])
 
         modelStruct = Dense(params.cnn_last_layer_length, activation='relu', name='fc1')(modelStruct)
         modelStruct = Dropout(0.2)(modelStruct)
@@ -217,7 +217,8 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
         currInput['metadataStats'] = metadataStats
         currInput['target_img_size'] = params.target_img_size
         currInput['angle'] = params.angle
-        currInput['flips'] = params.flips
+        currInput['flip_north_south'] = params.flip_north_south
+        currInput['flip_east_west'] = params.flip_east_west
         currInput['mask_metadata'] = params.mask_metadata
         task = partial(_load_batch_helper, currInput, augmentation)
         futures.append(executor.submit(task))
@@ -381,15 +382,15 @@ def _load_batch_helper(inputDict, augmentation):
 
     flip_h = flip_v = False
 
-    if inputDict['flips'] and augmentation:
+    if (inputDict['flip_north_south'] or inputDict['flip_east_west']) and augmentation:
 
-        flip_h = (np.random.random() < 0.5)
         flip_v = (np.random.random() < 0.5)
+        flip_h = (np.random.random() < 0.5)
 
-        if flip_h:
+        if flip_h and inputDict['flip_east_west']:
             img = flip_axis(img, 1) # flips > into < 
 
-        if flip_v:
+        if flip_v and inputDict['flip_north_south']:
             img = flip_axis(img, 0) # flips ^ into v 
 
     #show_image(img.astype(np.uint8))

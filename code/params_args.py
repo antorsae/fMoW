@@ -49,14 +49,17 @@ parser.add_argument('-lu', '--leave-unbalanced', action='store_true', help='Do n
 parser.add_argument('-mm', '--mask-metadata', action='store_true', help='Mask some of the metadata attributes (e.g. minutes, bbox coords, etc.)')
 parser.add_argument('-c', '--classifier', type=str, default=None, help='Base classifier to use -m InceptionResNetV2|SEInceptionResNetV2|Xception|densenet or lstm|...')
 parser.add_argument('-ifp', '--image-format-processed', type=str, default='jpg', help='Image format for output --prepare (models will be trained/evaluated with that output) -ig jpg|png')
-
+parser.add_argument('-nm', '--norm-metadata', action='store_true', help='Normalize (std 0, var 1) metadata')
 
 # single specific
 parser.add_argument('--generate-cnn-codes', action='store_true', help='Generate CNN codes')
 parser.add_argument('-a', '--angle', type=int, default=0, help='Angle range for rotation augmentation, e.g. -a 360')
 parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
-parser.add_argument('-f', '--flips', action='store_true', help='Use horizontal/vertical flips augmentation')
+parser.add_argument('-f', '--flips', action='store_true', help='Use horizontal/vertical flips augmentation (same as -fns -few)')
+parser.add_argument('-fns', '--flip-north-south', action='store_true', help='Use north/south flip augmentation')
+parser.add_argument('-few', '--flip-east-west', action='store_true', help='Use east-west flip augmentation')
 parser.add_argument('--freeze', type=int, default=0, help='Freeze first n CNN layers, e.g. --freeze 10')
+parser.add_argument('--amsgrad', action='store_true', help='Use amsgrad with Adam optimizer')
 
 # multi specific
 parser.add_argument('-m', '--multi', action='store_true', help='Use multi model')
@@ -87,7 +90,8 @@ angle = args.angle
 context_factor = args.context_factor
 weigthed = args.weigthed
 classifier = args.classifier
-flips = args.flips
+flip_north_south = args.flip_north_south or args.flips
+flip_east_west = args.flip_east_west or args.flips
 freeze = args.freeze
 print_model_summary = args.print_model_summary
 multi = args.multi
@@ -97,6 +101,8 @@ temporal_dropout = args.temporal_dropout
 max_temporal = args.max_temporal
 image_format_processed = args.image_format_processed
 image_format_dataset = 'jpg'
+norm_metadata = args.norm_metadata
+amsgrad = args.amsgrad
 
 #DIRECTORIES AND FILES
 directories = {}
