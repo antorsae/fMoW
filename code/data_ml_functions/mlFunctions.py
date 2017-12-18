@@ -20,7 +20,7 @@ __author__ = 'jhuapl'
 __version__ = 0.1
 
 import json
-from keras.applications import VGG16, imagenet_utils, InceptionResNetV2, Xception, ResNet50, NASNetMobile, NASNetLarge
+from keras.applications import VGG16, imagenet_utils, InceptionResNetV2, InceptionV3, Xception, ResNet50, NASNetMobile, NASNetLarge
 from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, Reshape, Conv2D, MaxPooling2D, ConvLSTM2D, Activation
 from keras.models import Sequential,Model
 from keras.preprocessing import image
@@ -60,7 +60,10 @@ def get_cnn_model(params):
         baseModel = densenet.DenseNetImageNet161(
             input_shape=(params.target_img_size, params.target_img_size, params.num_channels), include_top=False, input_tensor=input_tensor)
     else:
-        baseModel = classifier(weights='imagenet', include_top=False, input_tensor=input_tensor, pooling='avg')
+        baseModel = classifier(weights='imagenet' if not params.no_imagenet else None, 
+            include_top=False, 
+            input_tensor=input_tensor, 
+            pooling=params.pooling if params.pooling != 'none' else None)
             
     trainable = False
     n_trainable = 0

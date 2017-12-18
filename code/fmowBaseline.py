@@ -148,9 +148,9 @@ class FMOWBaseline:
             'multi' if self.params.multi else 'cnn', \
             'metadata' if self.params.use_metadata else 'no_metadata', \
             'd_' + self.params.directories_suffix, \
-            'c_' + self.params.classifier, \
+            'c_' + self.params.classifier + '_' + self.params.pooling, \
             'lr_' + str(self.params.learning_rate), \
-            'amsgrad_' if self.params.amsgrad else '', \
+            'amsgrad' if self.params.amsgrad else '', \
             'lu' if self.params.leave_unbalanced else '', \
             'mm' if self.params.mask_metadata else '', \
             'nm' if self.params.norm_metadata else '', \
@@ -158,11 +158,11 @@ class FMOWBaseline:
             'td_' + str(self.params.temporal_dropout) if self.params.multi else '', \
             'a_' + str(self.params.angle) if not self.params.multi else '', \
             'freeze_' + str(self.params.freeze) if not self.params.multi else '', \
-            'w' if self.params.weigthed else '', \
             'loss_' + self.params.loss if self.params.loss != 'categorical_crossentropy' else '', \
             'fns' if self.params.flip_north_south else '' if not self.params.multi else '', 
             'few' if self.params.flip_east_west else '' if not self.params.multi else '', 
-            'w_' if self.params.weigthed else '' \
+            'w' if self.params.weigthed else '' \
+            'nim' if self.params.no_imagenet else '' \
             ]
 
         preffix_pairs = [x for x in preffix_pairs if x != '']
@@ -450,7 +450,7 @@ class FMOWBaseline:
                     else:
                         _predictions = model.predict(imgdata, batch_size=currBatchSize)
 
-                    predictions_map[bbID] = _predictions
+                    predictions_map[str(bbID)] = _predictions
                     predictions  = np.sum(_predictions, axis=0) 
 
                 else:
@@ -501,14 +501,10 @@ class FMOWBaseline:
             if len(files) > 0:
                 prediction = np.argmax(predictions)
                 prediction_category = self.params.category_names[prediction]
-                #print(predictions)
-                #print(prediction)
-                #print(prediction_category)
-                #assert False
                 fid.write('%d,%s\n' % (bbID,prediction_category))
-                hickle.dump(predictions_map, prediction_name_preffix + ".hkl")
                 index += 1
 
+        hickle.dump(predictions_map, prediction_name_preffix + ".hkl")
         fid.close()
 
     def generate_cnn_codes(self):

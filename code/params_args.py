@@ -60,6 +60,8 @@ parser.add_argument('-fns', '--flip-north-south', action='store_true', help='Use
 parser.add_argument('-few', '--flip-east-west', action='store_true', help='Use east-west flip augmentation')
 parser.add_argument('--freeze', type=int, default=0, help='Freeze first n CNN layers, e.g. --freeze 10')
 parser.add_argument('--amsgrad', action='store_true', help='Use amsgrad with Adam optimizer')
+parser.add_argument('--no-imagenet', action='store_true', help='Do NOT use imagenet-trained weights to init model')
+parser.add_argument('--pooling', default='avg', help='Pooling to use for feature extraction')
 
 # multi specific
 parser.add_argument('-m', '--multi', action='store_true', help='Use multi model')
@@ -103,6 +105,8 @@ image_format_processed = args.image_format_processed
 image_format_dataset = 'jpg'
 norm_metadata = args.norm_metadata
 amsgrad = args.amsgrad
+no_imagenet = args.no_imagenet
+pooling = args.pooling
 
 #DIRECTORIES AND FILES
 directories = {}
