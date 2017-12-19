@@ -20,7 +20,7 @@ __author__ = 'jhuapl'
 __version__ = 0.1
 
 import json
-from keras.applications import VGG16, imagenet_utils, InceptionResNetV2, InceptionV3, Xception, ResNet50, NASNetMobile, NASNetLarge
+from keras.applications import VGG16, VGG19, MobileNet, imagenet_utils, InceptionResNetV2, InceptionV3, Xception, ResNet50
 from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, Reshape, Conv2D, MaxPooling2D, ConvLSTM2D, Activation
 from keras.models import Sequential,Model
 from keras.preprocessing import image
@@ -53,16 +53,21 @@ def get_cnn_model(params):
     :return model: CNN model with or without depending on params
     """
     
-    input_tensor = Input(shape=(params.target_img_size, params.target_img_size, params.num_channels))
+    if params.views == 0:
+        input_tensor = Input(shape=(params.target_img_size, params.target_img_size, params.num_channels))
+    else:
+        input_tensors = []
+        for _ in range(params.views):
+            _i = Input(shape=(params.target_img_size, params.target_img_size, params.num_channels))
+            input_tensors.append(_i)
 
     classifier = globals()[params.classifier]
     if params.classifier == 'densenet':
         baseModel = densenet.DenseNetImageNet161(
-            input_shape=(params.target_img_size, params.target_img_size, params.num_channels), include_top=False, input_tensor=input_tensor)
+            input_shape=(params.target_img_size, params.target_img_size, params.num_channels), include_top=False)#, input_tensor=input_tensor)
     else:
         baseModel = classifier(weights='imagenet' if not params.no_imagenet else None, 
             include_top=False, 
-            input_tensor=input_tensor, 
             pooling=params.pooling if params.pooling != 'none' else None)
             
     trainable = False
@@ -75,7 +80,18 @@ def get_cnn_model(params):
 
     print("Base CNN model has " + str(n_trainable) + "/" + str(len(baseModel.layers)) + " trainable layers")
 
-    modelStruct = baseModel.layers[-1].output
+#    modelStruct = baseModel.layers[-1].output
+    if params.views == 0:
+        modelStruct = baseModel(input_tensor) #.layers[-1].output
+    else:
+        modelStruct = None
+        for _input_tensor in input_tensors:
+            _modelStruct = baseModel(_input_tensor) #.layers[-1].output
+            if modelStruct == None:
+                modelStruct = _modelStruct
+            else:
+                modelStruct = concatenate([modelStruct, _modelStruct])
+
 
     if params.use_metadata:
         auxiliary_input = Input(shape=(params.metadata_length,), name='aux_input')
@@ -90,13 +106,17 @@ def get_cnn_model(params):
         modelStruct = Dense(512, activation='relu', name='nfc2')(modelStruct)
         modelStruct = Dropout(0.1)(modelStruct)
 
-    #modelStruct = Flatten()(modelStruct)
     predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
 
-    if not params.use_metadata:
-        model = Model(inputs=[baseModel.input], outputs=predictions)
+    if params.views == 0:
+        inputs = [input_tensor]
     else:
-        model = Model(inputs=[baseModel.input, auxiliary_input], outputs=predictions)
+        inputs = input_tensors
+
+    if params.use_metadata:
+        inputs.append(auxiliary_input)
+
+    model = Model(inputs=inputs, outputs=predictions)
 
     return model
 

@@ -61,7 +61,10 @@ parser.add_argument('-few', '--flip-east-west', action='store_true', help='Use e
 parser.add_argument('--freeze', type=int, default=0, help='Freeze first n CNN layers, e.g. --freeze 10')
 parser.add_argument('--amsgrad', action='store_true', help='Use amsgrad with Adam optimizer')
 parser.add_argument('--no-imagenet', action='store_true', help='Do NOT use imagenet-trained weights to init model')
-parser.add_argument('--pooling', default='avg', help='Pooling to use for feature extraction')
+parser.add_argument('--pooling', default='avg', help='Pooling to use for feature extraction, e.g. --pooling avg|max')
+
+parser.add_argument('-v', '--views', default=0, type=int, help='Number of views to use in multi-view model (defaults to single-view if not specified)')
+
 
 # multi specific
 parser.add_argument('-m', '--multi', action='store_true', help='Use multi model')
@@ -107,6 +110,7 @@ norm_metadata = args.norm_metadata
 amsgrad = args.amsgrad
 no_imagenet = args.no_imagenet
 pooling = args.pooling
+views = args.views
 
 #DIRECTORIES AND FILES
 directories = {}

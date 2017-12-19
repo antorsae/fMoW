@@ -34,6 +34,7 @@ from data_ml_functions.mlFunctions import load_cnn_batch
 from data_ml_functions.dataFunctions import get_batch_inds
 from multi_gpu_keras import multi_gpu_model
 from keras import backend as K
+from itertools import groupby
 
 import time
 from tqdm import tqdm
@@ -46,6 +47,16 @@ import random
 import re
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
 import hickle
+
+def softF1_loss(target, output):
+    smooth = 0.001
+    y_true_f = K.flatten(target)
+    y_pred_f = K.flatten(output)
+    tp = K.sum(y_true_f * y_pred_f)
+    fn = K.sum((1. - y_true_f) * y_pred_f)
+    fp = K.sum(y_true_f * (1. - y_pred_f))
+    return 1 - (2. * tp + smooth) / ( 2 * tp + fn + fp + smooth) #(K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+
 
 def focal_loss(target, output, gamma=2):
     output /= K.sum(output, axis=-1, keepdims=True)
@@ -150,7 +161,6 @@ class FMOWBaseline:
             'd_' + self.params.directories_suffix, \
             'c_' + self.params.classifier + '_' + self.params.pooling, \
             'lr_' + str(self.params.learning_rate), \
-            'amsgrad' if self.params.amsgrad else '', \
             'lu' if self.params.leave_unbalanced else '', \
             'mm' if self.params.mask_metadata else '', \
             'nm' if self.params.norm_metadata else '', \
@@ -198,6 +208,20 @@ class FMOWBaseline:
 
         assert len(allTrainingData) == len(trainData) + len(validData)
 
+        if self.params.views != 0:
+            allTrainingViews = []
+            for k,g in groupby(sorted(allTrainingData), lambda x:x['features_path'].split('/')[-2]):
+                group = list(g)
+                if len(group) == self.params.views:
+                    allTrainingViews.append(group)
+            trainViews    = [_t for _t in allTrainingViews if _t[0]['features_path'].find('/val/') == -1]
+            allValidViews = [_t for _t in allTrainingViews if _t[0]['features_path'].find('/val/') != -1]
+ 
+            addToTrainViews, validViews = train_test_split(allValidViews , test_size=0.5)
+            trainViews.extend(addToTrainViews)
+
+            assert len(allTrainingViews) == len(trainViews) + len(validViews)
+
         metadataStats = json.load(open(self.params.files['dataset_stats']))
 
         loaded_filename = None
@@ -218,15 +242,15 @@ class FMOWBaseline:
 
         model = multi_gpu_model(model, gpus=self.params.gpus)
 
-
-        if self.params.loss == 'focal':
+        if self.params.loss == 'focal' or self.params.loss == 'softF1':
             import keras.losses
             keras.losses.focal_loss = focal_loss
-            loss = focal_loss
+            keras.losses.softF1_loss = softF1_loss
+            loss = focal_loss if self.params.loss == 'focal' else softF1_loss
         else:
             loss = self.params.loss
 
-        model.compile(optimizer=Adam(lr=self.params.learning_rate, amsgrad=self.params.amsgrad), 
+        model.compile(optimizer=Adam(lr=self.params.learning_rate),# amsgrad=self.params.amsgrad), 
             loss=loss, 
             metrics=['accuracy'])
         
@@ -240,7 +264,12 @@ class FMOWBaseline:
         checkpoint = ModelCheckpoint(filepath=filePath, monitor='loss', verbose=1, save_best_only=False, save_weights_only=False, mode='auto')
         reduce_lr = ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=1, min_lr=1e-7, epsilon = 0.01, verbose=1)
 
-        model.fit_generator(generator=img_metadata_generator(self.params, trainData, metadataStats, class_aware_sampling = not self.params.leave_unbalanced),
+        if self.params.views != 0:
+            trainData = trainViews
+            validData = validViews
+
+        model.fit_generator(
+            generator=img_metadata_generator(self.params, trainData, metadataStats, class_aware_sampling = not self.params.leave_unbalanced),
             steps_per_epoch=int(math.ceil((len(trainData) / self.params.batch_size))),
             class_weight = self.get_class_weights() if self.params.weigthed else None,
             epochs=self.params.epochs, initial_epoch = initial_epoch,
