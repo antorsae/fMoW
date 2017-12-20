@@ -186,7 +186,10 @@ def img_metadata_generator(params, data, metadataStats, class_aware_sampling = T
     N = len(data)
 
     if class_aware_sampling:
-        data_labels = [datum['category'] for datum in data]
+        if params.views == 0:
+            data_labels = [datum['category'] for datum in data]
+        else:
+            data_labels = [datum[0]['category'] for datum in data]
         label_to_idx = defaultdict(list)
         for i, label in enumerate(data_labels):
             label_to_idx[label].append(i)
@@ -243,6 +246,7 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
         currInput['flip_north_south'] = params.flip_north_south
         currInput['flip_east_west'] = params.flip_east_west
         currInput['mask_metadata'] = params.mask_metadata
+        currInput['offset'] = params.offset
         task = partial(_load_batch_helper, currInput, augmentation)
         futures.append(executor.submit(task))
 
@@ -371,6 +375,11 @@ def _load_batch_helper(inputDict, augmentation):
 
     target_img_size = inputDict['target_img_size']
 
+    if augmentation:
+        random_offset = (np.random.random((2,)) - 0.5 ) * (inputDict['offset'] * target_img_size)
+    else:
+        random_offset = np.zeros(2,)
+
     if angle != 0. and augmentation:
         patch_size = img.shape[0]
         patch_center = patch_size / 2
@@ -380,6 +389,8 @@ def _load_batch_helper(inputDict, augmentation):
             [ patch_center - patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
             [ patch_center + patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
             [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ]])
+
+        src_points += random_offset 
 
         # src_points are rotated COUNTER-CLOCKWISE
         src_points = rotate(src_points, angle, img.shape).astype(np.float32)
@@ -396,9 +407,9 @@ def _load_batch_helper(inputDict, augmentation):
 
     else:
         crop_size = target_img_size
-        x0 = int(img.shape[1]/2 - crop_size/2)
+        x0 = int(img.shape[1]/2 - crop_size/2 + random_offset[0])
         x1 = x0 + crop_size
-        y0 = int(img.shape[0]/2 - crop_size/2)
+        y0 = int(img.shape[0]/2 - crop_size/2 + random_offset[1])
         y1 = y0 + crop_size
 
         img = img[y0:y1, x0:x1,...].astype(np.float32)

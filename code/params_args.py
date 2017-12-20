@@ -35,9 +35,13 @@ parser.add_argument('-l', '--learning-rate', type=float, default=1e-4, help='Ini
 parser.add_argument('--max-epoch', type=int, default=20, help='Epoch to run')
 
 ## 
-parser.add_argument('-d', '--dir-suffix', type=str, default='-r224', help='Suffix for directory names')
+parser.add_argument('-d', '--dir-suffix', type=str, default='_r224', help='Suffix for directory names')
 parser.add_argument('--prepare', action='store_true', help='Prepare data')
 parser.add_argument('--train', action='store_true', help='Train model')
+
+parser.add_argument('-e', '--ensemble', type=str, nargs='*', default=None, help='Generate predictions based on ensemble of multiple hkl files, e.g. -e *.hkl')
+parser.add_argument('-em', '--ensemble-mean', type=str, default='arithmetic', help='Type of mean for averageing -em arithmetic|geometric')
+
 parser.add_argument('--test', action='store_true', help='Evaluate model and generate predictions')
 parser.add_argument('-g', '--gpus', type=int, default=1, help='Number of GPUs to use')
 parser.add_argument('--loss', type=str, default='categorical_crossentropy', help='Loss function to use, i.e. categorical_crossentropy or focal')
@@ -54,6 +58,7 @@ parser.add_argument('-nm', '--norm-metadata', action='store_true', help='Normali
 # single specific
 parser.add_argument('--generate-cnn-codes', action='store_true', help='Generate CNN codes')
 parser.add_argument('-a', '--angle', type=int, default=0, help='Angle range for rotation augmentation, e.g. -a 360')
+parser.add_argument('-o', '--offset', type=float, default=0., help='Offset percentage to take a crop relative to image size, e.g. -o 0.2 means 20 per cent of image size, e.g. 112 * 0.2 = 22.4 pixels')
 parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
 parser.add_argument('-f', '--flips', action='store_true', help='Use horizontal/vertical flips augmentation (same as -fns -few)')
 parser.add_argument('-fns', '--flip-north-south', action='store_true', help='Use north/south flip augmentation')
@@ -111,6 +116,9 @@ amsgrad = args.amsgrad
 no_imagenet = args.no_imagenet
 pooling = args.pooling
 views = args.views
+offset = args.offset
+ensemble = args.ensemble
+ensemble_mean = args.ensemble_mean
 
 #DIRECTORIES AND FILES
 directories = {}

@@ -47,6 +47,8 @@ import random
 import re
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
 import hickle
+import keras.losses
+from keras.losses import categorical_hinge
 
 def softF1_loss(target, output):
     smooth = 0.001
@@ -57,27 +59,24 @@ def softF1_loss(target, output):
     fp = K.sum(y_true_f * (1. - y_pred_f))
     return 1 - (2. * tp + smooth) / ( 2 * tp + fn + fp + smooth) #(K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
 
+def surrogateF1_loss(target, output): # WiP
+    #https://arxiv.org/pdf/1608.04802.pdf
+    y_true = K.flatten(target * 2 - 1)
+    y_pred = K.flatten(output * 2 - 1)
+    Yp = K.flatten(target)
+    Yn = 1. - Yp
+
+    tpl = K.sum(1. - categorical_hinge(y_true * Yp, y_pred * Yp))
+    fpu = K.sum(     categorical_hinge(y_true * Yn, y_pred * Yn))
+
+    # 2 tpl / |Y+| + tpl + fpu
+    return 2 * tpl / (K.sum(Yp) + tpl + fpu)
 
 def focal_loss(target, output, gamma=2):
     output /= K.sum(output, axis=-1, keepdims=True)
     eps = K.epsilon()
     output = K.clip(output, eps, 1. - eps)
     return -K.sum(K.pow(1. - output, gamma) * target * K.log(output), axis=-1)
-
-def true_pos(y_true, y_pred):
-    return K.sum(y_true * K.round(y_pred))
-
-def false_pos(y_true, y_pred):
-    return K.sum(y_true * (1. - K.round(y_pred)))
-
-def false_neg(y_true, y_pred):
-    return K.sum((1. - y_true) * K.round(y_pred))
-
-def precision(y_true, y_pred):
-    return true_pos(y_true, y_pred) / (true_pos(y_true, y_pred) + false_pos(y_true, y_pred))
-
-def recall(y_true, y_pred):
-    return true_pos(y_true, y_pred) / (true_pos(y_true, y_pred) + false_neg(y_true, y_pred))
 
 category_weights = None
 
@@ -111,6 +110,9 @@ class FMOWBaseline:
         self.params = params
         category_weights = self.get_class_weights(return_array=True)
 
+        keras.losses.focal_loss       = focal_loss
+        keras.losses.softF1_loss      = softF1_loss
+        keras.losses.surrogateF1_loss = surrogateF1_loss
 
         np.random.seed(0)
         random.seed(0)
@@ -167,6 +169,7 @@ class FMOWBaseline:
             'b_' + str(self.params.batch_size), \
             'td_' + str(self.params.temporal_dropout) if self.params.multi else '', \
             'a_' + str(self.params.angle) if not self.params.multi else '', \
+            'o_' + str(self.params.offset) if not self.params.multi else '', \
             'freeze_' + str(self.params.freeze) if not self.params.multi else '', \
             'loss_' + self.params.loss if self.params.loss != 'categorical_crossentropy' else '', \
             'fns' if self.params.flip_north_south else '' if not self.params.multi else '', 
@@ -188,6 +191,34 @@ class FMOWBaseline:
             if match:
                 initial_epoch = int(match.group(1))
         return initial_epoch
+
+    def ensemble(self):
+        prediction_maps = [ ]
+
+        for predictions_map_hkl in self.params.ensemble:
+            print("Loading " + predictions_map_hkl)
+            prediction_maps.append(hickle.load(predictions_map_hkl))
+
+        n_maps = len(prediction_maps)
+        assert n_maps > 1
+
+        prediction_name_preffix = os.path.join(self.params.directories['predictions'], 
+                'ensemble-%s' % ( time.strftime("%Y%m%d-%H%M%S")))
+        print(prediction_name_preffix)
+        fid = open(prediction_name_preffix + '.txt', 'w')
+        for bbID in tqdm(prediction_maps[0]):
+            prediction_shape = prediction_maps[0][bbID].shape
+            predictions = np.zeros((n_maps, prediction_shape[0], prediction_shape[1]))
+            #print(predictions.shape)
+            for i, prediction_map in enumerate(prediction_maps):
+                predictions[i,...]=prediction_map[bbID]
+            if self.params.ensemble_mean == 'geometric':
+                predictions = np.log(predictions + 1e-8) # avoid numerical instability log(0)
+            prediction = np.sum(predictions, axis=(0,1))
+            max_prediction = np.argmax(prediction)
+            prediction_category = self.params.category_names[max_prediction]
+            fid.write('%s,%s\n' % (bbID, prediction_category))
+        fid.close()
 
     def train(self):
         """
@@ -242,13 +273,16 @@ class FMOWBaseline:
 
         model = multi_gpu_model(model, gpus=self.params.gpus)
 
-        if self.params.loss == 'focal' or self.params.loss == 'softF1':
-            import keras.losses
-            keras.losses.focal_loss = focal_loss
-            keras.losses.softF1_loss = softF1_loss
-            loss = focal_loss if self.params.loss == 'focal' else softF1_loss
+        _loss = self.params.loss
+
+        if  _loss== 'focal': 
+            loss = focal_loss 
+        elif _loss == 'softF1':
+            loss = softF1_loss
+        elif _loss == 'surrogateF1':
+            loss = surrogateF1_loss
         else:
-            loss = self.params.loss
+            loss = _loss
 
         model.compile(optimizer=Adam(lr=self.params.learning_rate),# amsgrad=self.params.amsgrad), 
             loss=loss, 
