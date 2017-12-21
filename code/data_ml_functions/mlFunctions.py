@@ -21,7 +21,7 @@ __version__ = 0.1
 
 import json
 from keras.applications import VGG16, VGG19, MobileNet, imagenet_utils, InceptionResNetV2, InceptionV3, Xception, ResNet50
-from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, Reshape, Conv2D, MaxPooling2D, ConvLSTM2D, Activation
+from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, add, Reshape, Conv2D, MaxPooling2D, ConvLSTM2D, Activation, BatchNormalization
 from keras.models import Sequential,Model
 from keras.preprocessing import image
 from keras.utils.np_utils import to_categorical
@@ -91,7 +91,8 @@ def get_cnn_model(params):
                 modelStruct = _modelStruct
             else:
                 modelStruct = concatenate([modelStruct, _modelStruct])
-
+                #modelStruct = add([modelStruct, _modelStruct])
+        modelStruct = BatchNormalization()(modelStruct)
 
     if params.use_metadata:
         auxiliary_input = Input(shape=(params.metadata_length,), name='aux_input')
@@ -103,9 +104,13 @@ def get_cnn_model(params):
 
         modelStruct = Dense(params.cnn_last_layer_length, activation='relu', name='fc1')(modelStruct)
         modelStruct = Dropout(0.2)(modelStruct)
-        modelStruct = Dense(512, activation='relu', name='nfc2')(modelStruct)
-        modelStruct = Dropout(0.1)(modelStruct)
+        #modelStruct = Dense(512, activation='relu', name='nfc2')(modelStruct)
+        #modelStruct = Dropout(0.1)(modelStruct)
 
+    #modelStruct = Dense(1024, activation='relu', name='nfc1')(modelStruct)
+    #modelStruct = Dropout(0.3)(modelStruct)
+    #modelStruct = Dense(512, activation='relu', name='nfc2')(modelStruct)
+    modelStruct = Dropout(0.3)(modelStruct)
     predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
 
     if params.views == 0:
@@ -218,10 +223,22 @@ def img_metadata_generator(params, data, metadataStats, class_aware_sampling = T
         for inds in batchInds:
             batchData = [data[ind] for ind in inds]
             imgdata,metadata,labels = load_cnn_batch(params, batchData, metadataStats, executor, augmentation)
+            inputs = imgdata
+            if params.views != 0:
+                assert len(imgdata)  == params.views
+                assert len(metadata) == params.views
+                assert len(labels)   == params.views
+                # all labels should be equal
+                label = labels[0]
+                for _label in labels:
+                    assert np.argmax(_label) == np.argmax(label)
+                labels = label
+                metadata = np.mean(metadata, axis=0)
             if params.use_metadata:
-                yield([imgdata,metadata],labels)
-            else:
-                yield(imgdata,labels)
+                if not isinstance(inputs, (list, tuple)):
+                    inputs = [inputs]
+                inputs.append(metadata)
+            yield(inputs,labels)
         
 def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
     """
@@ -232,9 +249,18 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
     :return imgdata,metadata,labels: numpy arrays containing the image data, metadata, and labels (categorical form)
     """
     futures = []
-    imgdata = np.zeros((params.batch_size,params.target_img_size,params.target_img_size,params.num_channels))
-    metadata = np.zeros((params.batch_size,params.metadata_length))
-    labels = np.zeros(params.batch_size)
+    if params.views == 0:
+        imgdata = np.zeros((params.batch_size,params.target_img_size,params.target_img_size,params.num_channels))
+        metadata = np.zeros((params.batch_size,params.metadata_length))
+        labels = np.zeros((params.batch_size, params.num_labels))
+    else:
+        imgdata  = []
+        metadata = []
+        labels   = []
+        for _ in range(params.views):
+            imgdata.append(np.zeros((params.batch_size,params.target_img_size,params.target_img_size,params.num_channels)))
+            metadata.append(np.zeros((params.batch_size,params.metadata_length)))
+            labels.append(np.zeros((params.batch_size, params.num_labels)))
     inputs = []
     results = []
     for i in range(0,len(batchData)):
@@ -247,17 +273,24 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
         currInput['flip_east_west'] = params.flip_east_west
         currInput['mask_metadata'] = params.mask_metadata
         currInput['offset'] = params.offset
+        currInput['views'] = params.views
+        currInput['num_labels'] = params.num_labels
+
         task = partial(_load_batch_helper, currInput, augmentation)
         futures.append(executor.submit(task))
 
     results = [future.result() for future in futures]
 
     for i,result in enumerate(results):
-        metadata[i,:] = result['metadata']
-        imgdata[i, ...] = result['img']
-        labels[i] = result['labels']
-    
-    labels = to_categorical(labels, params.num_labels)
+        if params.views == 0:
+            imgdata[i, ...] = result['img']
+            metadata[i,:]   = result['metadata'] 
+            labels[i]       = result['labels']
+        else:
+            for view in range(params.views):
+                imgdata[view][i, ...] = result[view]['img'] 
+                metadata[view][i,:]   = result[view]['metadata']
+                labels[view][i]       = result[view]['labels']
 
     return imgdata,metadata,labels
 
@@ -365,84 +398,103 @@ def _load_batch_helper(inputDict, augmentation):
     :param inputDict: dict containing the data and metadataStats that will be used to load imagery
     :return currOutput: dict with image data, metadata, and the associated label
     """
-    data = inputDict['data']
+    datas = inputDict['data']
     metadataStats = inputDict['metadataStats']
-    metadata = json.load(open(data['features_path']))
+    num_labels = inputDict['num_labels']
 
-    img = scipy.misc.imread(data['img_path'])
+    # for 0-views make it a list so we can iterate later
+    if not isinstance(datas, (list, tuple)):
+        datas = [datas]
 
-    angle= (np.random.random() - 0.5 ) * inputDict['angle']
-
+    currOutputs = [ ]
     target_img_size = inputDict['target_img_size']
 
     if augmentation:
         random_offset = (np.random.random((2,)) - 0.5 ) * (inputDict['offset'] * target_img_size)
+        random_angle  = (np.random.random() - 0.5 ) * inputDict['angle']
+        flip_v = (np.random.random() < 0.5) and inputDict['flip_east_west']
+        flip_h = (np.random.random() < 0.5) and inputDict['flip_north_south']
     else:
         random_offset = np.zeros(2,)
+        random_angle  = 0.
+        flip_v = flip_h = False
 
-    if angle != 0. and augmentation:
-        patch_size = img.shape[0]
-        patch_center = patch_size / 2
-        sq2 = 1.4142135624 
+    if inputDict['views'] != 0:
+        datas = random.sample(datas, inputDict['views'])
 
-        src_points = np.float32([
-            [ patch_center - patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
-            [ patch_center + patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
-            [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ]])
+    timestamps = []
+    for data in datas:
 
-        src_points += random_offset 
+        metadata = json.load(open(data['features_path']))
+        timestamps.append(get_timestamp(metadata))
+        img = scipy.misc.imread(data['img_path'])
 
-        # src_points are rotated COUNTER-CLOCKWISE
-        src_points = rotate(src_points, angle, img.shape).astype(np.float32)
+        if random_angle != 0. and augmentation:
+            patch_size = img.shape[0]
+            patch_center = patch_size / 2
+            sq2 = 1.4142135624 
 
-        # dst_points are fixed
-        dst_points = np.float32([
-            [ 0 , 0 ], 
-            [ target_img_size - 1, 0 ], 
-            [ target_img_size - 1, target_img_size - 1]]) 
+            src_points = np.float32([
+                [ patch_center - patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
+                [ patch_center + patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
+                [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ]])
 
-        # this is effectively a CLOCKWISE rotation
-        M   = cv2.getAffineTransform(src_points, dst_points)
-        img = cv2.warpAffine(img, M, (target_img_size, target_img_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
+            src_points += random_offset 
 
-    else:
-        crop_size = target_img_size
-        x0 = int(img.shape[1]/2 - crop_size/2 + random_offset[0])
-        x1 = x0 + crop_size
-        y0 = int(img.shape[0]/2 - crop_size/2 + random_offset[1])
-        y1 = y0 + crop_size
+            # src_points are rotated COUNTER-CLOCKWISE
+            src_points = rotate(src_points, random_angle, img.shape).astype(np.float32)
 
-        img = img[y0:y1, x0:x1,...].astype(np.float32)
+            # dst_points are fixed
+            dst_points = np.float32([
+                [ 0 , 0 ], 
+                [ target_img_size - 1, 0 ], 
+                [ target_img_size - 1, target_img_size - 1]]) 
 
-    flip_h = flip_v = False
+            # this is effectively a CLOCKWISE rotation
+            M   = cv2.getAffineTransform(src_points, dst_points)
+            img = cv2.warpAffine(img, M, (target_img_size, target_img_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
 
-    if (inputDict['flip_north_south'] or inputDict['flip_east_west']) and augmentation:
+        else:
+            crop_size = target_img_size
+            x0 = int(img.shape[1]/2 - crop_size/2 + random_offset[0])
+            x1 = x0 + crop_size
+            y0 = int(img.shape[0]/2 - crop_size/2 + random_offset[1])
+            y1 = y0 + crop_size
 
-        flip_v = (np.random.random() < 0.5)
-        flip_h = (np.random.random() < 0.5)
+            img = img[y0:y1, x0:x1,...].astype(np.float32)
 
-        if flip_h and inputDict['flip_east_west']:
+        if flip_h:
             img = flip_axis(img, 1) # flips > into < 
 
-        if flip_v and inputDict['flip_north_south']:
+        if flip_v:
             img = flip_axis(img, 0) # flips ^ into v 
 
-    #show_image(img.astype(np.uint8))
-    #raw_input("Press enter")
-    if augmentation:
-        metadata = transform_metadata(metadata, flip_h=flip_h, flip_v=flip_v, angle=angle)
+        #show_image(img.astype(np.uint8))
+        #raw_input("Press enter")
+        if augmentation:
+            metadata = transform_metadata(metadata, flip_h=flip_h, flip_v=flip_v, angle=random_angle)
 
-    img = imagenet_utils.preprocess_input(img) / 255.
+        img = imagenet_utils.preprocess_input(img) / 255.
 
-    labels = data['category']
-    currOutput = {}
-    currOutput['img'] = img
-    metadata = np.divide(json.load(open(data['features_path'])) - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
-    if inputDict['mask_metadata']:
-        metadata = mask_metadata(metadata)   
-    currOutput['metadata'] = metadata
-    currOutput['labels'] = labels
-    return currOutput
+        labels = to_categorical(data['category'], num_labels)
+        currOutput = {}
+        currOutput['img'] = img
+        metadata = np.divide(json.load(open(data['features_path'])) - np.array(metadataStats['metadata_mean']), metadataStats['metadata_max'])
+        if inputDict['mask_metadata']:
+            metadata = mask_metadata(metadata)   
+        currOutput['metadata'] = metadata
+        currOutput['labels'] = labels
+
+        currOutputs.append(currOutput)
+
+    if len(currOutputs) == 1:
+        currOutputs = currOutputs[0]
+    else:
+        # sort by timestamp
+        sortedInds = sorted(range(len(timestamps)), key=lambda k:timestamps[k])
+        currOutputs = [currOutputs[i] for i in sortedInds]
+
+    return currOutputs
 
 def codes_metadata_generator(params, data, metadataStats, codesStats, class_aware_sampling = True, temporal_dropout = True):
     """
@@ -532,6 +584,9 @@ def load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor
     
     return codesMetadata,labels
 
+def get_timestamp(metadata):
+    return (metadata[4]-1970)*525600 + metadata[5]*12*43800 + metadata[6]*31*1440 + metadata[7]*60
+
 def _load_lstm_batch_helper(inputDict):
 
     currData = inputDict['currData']
@@ -558,7 +613,7 @@ def _load_lstm_batch_helper(inputDict):
         cnnCodes = np.load(jcurrData['cnn_codes_paths'][codesIndex])
         metadata = json.load(open(currData['metadata_paths'][codesIndex]))
         # compute a timestamp for temporally sorting
-        timestamp = (metadata[4]-1970)*525600 + metadata[5]*12*43800 + metadata[6]*31*1440 + metadata[7]*60
+        timestamp = get_timestamp(metadata) 
         timestamps.append(timestamp)
 
         cnnCodes = np.divide(cnnCodes - np.array(codesStats['codes_mean']), np.array(codesStats['codes_max']))

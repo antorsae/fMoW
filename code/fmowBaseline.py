@@ -243,7 +243,7 @@ class FMOWBaseline:
             allTrainingViews = []
             for k,g in groupby(sorted(allTrainingData), lambda x:x['features_path'].split('/')[-2]):
                 group = list(g)
-                if len(group) == self.params.views:
+                if len(group) >= self.params.views:
                     allTrainingViews.append(group)
             trainViews    = [_t for _t in allTrainingViews if _t[0]['features_path'].find('/val/') == -1]
             allValidViews = [_t for _t in allTrainingViews if _t[0]['features_path'].find('/val/') != -1]
