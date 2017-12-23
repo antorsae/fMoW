@@ -23,7 +23,7 @@ import json
 from keras.applications import VGG16, VGG19, MobileNet, imagenet_utils, InceptionResNetV2, InceptionV3, Xception, ResNet50
 from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, add, Reshape, Conv2D, MaxPooling2D, ConvLSTM2D, Activation, BatchNormalization
 from keras.models import Sequential,Model
-from keras.preprocessing import image
+from keras.preprocessing.image import random_channel_shift
 from keras.utils.np_utils import to_categorical
 
 from keras_contrib.layers.normalization import InstanceNormalization, BatchRenormalization
@@ -109,8 +109,8 @@ def get_cnn_model(params):
 
     #modelStruct = Dense(1024, activation='relu', name='nfc1')(modelStruct)
     #modelStruct = Dropout(0.3)(modelStruct)
-    #modelStruct = Dense(512, activation='relu', name='nfc2')(modelStruct)
-    modelStruct = Dropout(0.3)(modelStruct)
+    modelStruct = Dense(512, activation='relu', name='nfc2')(modelStruct)
+    modelStruct = Dropout(0.1)(modelStruct)
     predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
 
     if params.views == 0:
@@ -275,6 +275,7 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
         currInput['offset'] = params.offset
         currInput['views'] = params.views
         currInput['num_labels'] = params.num_labels
+        currInput['jitter_channel'] = params.jitter_channel
 
         task = partial(_load_batch_helper, currInput, augmentation)
         futures.append(executor.submit(task))
@@ -392,6 +393,9 @@ def mask_metadata(metadata):
 
     return metadata
 
+def jitter_metadata(metadata, scale=0.05):
+    return np.clip(np.random.normal(metadata, scale), 0., 1.)
+
 def _load_batch_helper(inputDict, augmentation):
     """
     Helper for load_cnn_batch that actually loads imagery and supports parallel processing
@@ -429,6 +433,9 @@ def _load_batch_helper(inputDict, augmentation):
         timestamps.append(get_timestamp(metadata))
         img = scipy.misc.imread(data['img_path'])
 
+        if inputDict['jitter_channel'] != 0 and augmentation:
+            img = random_channel_shift(img, inputDict['jitter_channel'] * 255., 2)
+
         if random_angle != 0. and augmentation:
             patch_size = img.shape[0]
             patch_center = patch_size / 2
@@ -453,7 +460,6 @@ def _load_batch_helper(inputDict, augmentation):
             # this is effectively a CLOCKWISE rotation
             M   = cv2.getAffineTransform(src_points, dst_points)
             img = cv2.warpAffine(img, M, (target_img_size, target_img_size), borderMode = cv2.BORDER_REFLECT_101).astype(np.float32)
-
         else:
             crop_size = target_img_size
             x0 = int(img.shape[1]/2 - crop_size/2 + random_offset[0])
@@ -471,8 +477,10 @@ def _load_batch_helper(inputDict, augmentation):
 
         #show_image(img.astype(np.uint8))
         #raw_input("Press enter")
+
         if augmentation:
             metadata = transform_metadata(metadata, flip_h=flip_h, flip_v=flip_v, angle=random_angle)
+            metadata = jitter_metadata(metadata)
 
         img = imagenet_utils.preprocess_input(img) / 255.
 

@@ -57,6 +57,7 @@ parser.add_argument('-nm', '--norm-metadata', action='store_true', help='Normali
 
 # single specific
 parser.add_argument('--generate-cnn-codes', action='store_true', help='Generate CNN codes')
+parser.add_argument('-j', '--jitter-channel', type=float, default=0., help='Percentage to jitter image channels, e.g. -j 0.1')
 parser.add_argument('-a', '--angle', type=int, default=0, help='Angle range for rotation augmentation, e.g. -a 360')
 parser.add_argument('-o', '--offset', type=float, default=0., help='Offset percentage to take a crop relative to image size, e.g. -o 0.2 means 20 per cent of image size, e.g. 112 * 0.2 = 22.4 pixels')
 parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
@@ -119,6 +120,7 @@ views = args.views
 offset = args.offset
 ensemble = args.ensemble
 ensemble_mean = args.ensemble_mean
+jitter_channel = args.jitter_channel
 
 #DIRECTORIES AND FILES
 directories = {}
