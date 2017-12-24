@@ -82,7 +82,7 @@ def get_cnn_model(params):
 
 #    modelStruct = baseModel.layers[-1].output
     if params.views == 0:
-        modelStruct = baseModel(input_tensor) #.layers[-1].output
+        modelStruct = baseModel(input_tensor)
     else:
         modelStruct = None
         for _input_tensor in input_tensors:
@@ -278,7 +278,6 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
         currInput['jitter_channel'] = params.jitter_channel
         currInput['jitter_metadata'] = params.jitter_metadata
 
-
         task = partial(_load_batch_helper, currInput, augmentation)
         futures.append(executor.submit(task))
 
@@ -291,9 +290,10 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
             labels[i]       = result['labels']
         else:
             for view in range(params.views):
-                imgdata[view][i, ...] = result[view]['img'] 
-                metadata[view][i,:]   = result[view]['metadata']
-                labels[view][i]       = result[view]['labels']
+                print(result)
+                imgdata[view][i]  = result[view]['img'] 
+                metadata[view][i] = result[view]['metadata']
+                labels[view][i]   = result[view]['labels']
 
     return imgdata,metadata,labels
 
@@ -396,7 +396,7 @@ def mask_metadata(metadata):
     return metadata
 
 def jitter_metadata(metadata, scale):
-    return np.clip(np.random.normal(metadata, scale), 0., 1.)
+    return np.random.normal(metadata, scale)
 
 def _load_batch_helper(inputDict, augmentation):
     """
@@ -498,7 +498,7 @@ def _load_batch_helper(inputDict, augmentation):
 
         currOutputs.append(currOutput)
 
-    if len(currOutputs) == 1:
+    if (len(currOutputs) == 1) and (inputDict['views'] == 0):
         currOutputs = currOutputs[0]
     else:
         # sort by timestamp
