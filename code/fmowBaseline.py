@@ -170,6 +170,8 @@ class FMOWBaseline:
             'td_' + str(self.params.temporal_dropout) if self.params.multi else '', \
             'a_' + str(self.params.angle) if not self.params.multi else '', \
             'o_' + str(self.params.offset) if not self.params.multi else '', \
+            'jc_' + str(self.params.jitter_channel) if not self.params.multi else '', \
+            'jm_' + str(self.params.jitter_metadata) if not self.params.multi else '', \
             'freeze_' + str(self.params.freeze) if not self.params.multi else '', \
             'loss_' + self.params.loss if self.params.loss != 'categorical_crossentropy' else '', \
             'fns' if self.params.flip_north_south else '' if not self.params.multi else '', 
@@ -203,22 +205,29 @@ class FMOWBaseline:
         assert n_maps > 1
 
         prediction_name_preffix = os.path.join(self.params.directories['predictions'], 
-                'ensemble-%s' % ( time.strftime("%Y%m%d-%H%M%S")))
-        print(prediction_name_preffix)
+                'ensemble-%s-%s-%s' % (n_maps, self.params.ensemble_mean, time.strftime("%Y%m%d-%H%M%S")))
         fid = open(prediction_name_preffix + '.txt', 'w')
+        epsilon = 1e-8
         for bbID in tqdm(prediction_maps[0]):
             prediction_shape = prediction_maps[0][bbID].shape
-            predictions = np.zeros((n_maps, prediction_shape[0], prediction_shape[1]))
-            #print(predictions.shape)
+            predictions = np.zeros((n_maps, prediction_shape[1]))
             for i, prediction_map in enumerate(prediction_maps):
-                predictions[i,...]=prediction_map[bbID]
+                
+                pred = prediction_map[bbID]
+                if self.params.ensemble_mean == 'geometric':
+                    pred = np.log(pred + epsilon) # avoid numerical instability log(0)
+                    predictions[i,...] = np.exp(np.mean(pred, axis=0))
+                else:
+                    predictions[i,...] = np.mean(pred, axis=0)
+
             if self.params.ensemble_mean == 'geometric':
-                predictions = np.log(predictions + 1e-8) # avoid numerical instability log(0)
-            prediction = np.sum(predictions, axis=(0,1))
+                predictions = np.log(predictions + epsilon) # avoid numerical instability log(0)
+            prediction = np.sum(predictions, axis=0)
             max_prediction = np.argmax(prediction)
             prediction_category = self.params.category_names[max_prediction]
             fid.write('%s,%s\n' % (bbID, prediction_category))
         fid.close()
+        print(prediction_name_preffix + ".txt")
 
     def train(self):
         """

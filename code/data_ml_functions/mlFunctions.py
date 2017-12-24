@@ -276,6 +276,8 @@ def load_cnn_batch(params, batchData, metadataStats, executor, augmentation):
         currInput['views'] = params.views
         currInput['num_labels'] = params.num_labels
         currInput['jitter_channel'] = params.jitter_channel
+        currInput['jitter_metadata'] = params.jitter_metadata
+
 
         task = partial(_load_batch_helper, currInput, augmentation)
         futures.append(executor.submit(task))
@@ -393,7 +395,7 @@ def mask_metadata(metadata):
 
     return metadata
 
-def jitter_metadata(metadata, scale=0.05):
+def jitter_metadata(metadata, scale):
     return np.clip(np.random.normal(metadata, scale), 0., 1.)
 
 def _load_batch_helper(inputDict, augmentation):
@@ -480,7 +482,8 @@ def _load_batch_helper(inputDict, augmentation):
 
         if augmentation:
             metadata = transform_metadata(metadata, flip_h=flip_h, flip_v=flip_v, angle=random_angle)
-            metadata = jitter_metadata(metadata)
+            if inputDict['jitter_metadata'] != 0:
+                metadata = jitter_metadata(metadata, inputDict['jitter_metadata'])
 
         img = imagenet_utils.preprocess_input(img) / 255.
 

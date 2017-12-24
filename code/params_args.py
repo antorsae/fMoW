@@ -39,6 +39,7 @@ parser.add_argument('-d', '--dir-suffix', type=str, default='_r224', help='Suffi
 parser.add_argument('--prepare', action='store_true', help='Prepare data')
 parser.add_argument('--train', action='store_true', help='Train model')
 
+# ensembling
 parser.add_argument('-e', '--ensemble', type=str, nargs='*', default=None, help='Generate predictions based on ensemble of multiple hkl files, e.g. -e *.hkl')
 parser.add_argument('-em', '--ensemble-mean', type=str, default='arithmetic', help='Type of mean for averageing -em arithmetic|geometric')
 
@@ -57,7 +58,8 @@ parser.add_argument('-nm', '--norm-metadata', action='store_true', help='Normali
 
 # single specific
 parser.add_argument('--generate-cnn-codes', action='store_true', help='Generate CNN codes')
-parser.add_argument('-j', '--jitter-channel', type=float, default=0., help='Percentage to jitter image channels, e.g. -j 0.1')
+parser.add_argument('-jc', '--jitter-channel',  type=float, default=0., help='Percentage to jitter image channels, e.g. -jc 0.1')
+parser.add_argument('-jm', '--jitter-metadata', type=float, default=0., help='Std deviation (scale in np) of gaussian noise to jitter metadata, e.g. -jm 0.05')
 parser.add_argument('-a', '--angle', type=int, default=0, help='Angle range for rotation augmentation, e.g. -a 360')
 parser.add_argument('-o', '--offset', type=float, default=0., help='Offset percentage to take a crop relative to image size, e.g. -o 0.2 means 20 per cent of image size, e.g. 112 * 0.2 = 22.4 pixels')
 parser.add_argument('-cf', '--context-factor', type=float, default=1.5, help='Context around bound box selection, e.g. -cf 1 (no context, just bb), -cf 2 (effectively doubles size of bb)')
@@ -65,12 +67,11 @@ parser.add_argument('-f', '--flips', action='store_true', help='Use horizontal/v
 parser.add_argument('-fns', '--flip-north-south', action='store_true', help='Use north/south flip augmentation')
 parser.add_argument('-few', '--flip-east-west', action='store_true', help='Use east-west flip augmentation')
 parser.add_argument('--freeze', type=int, default=0, help='Freeze first n CNN layers, e.g. --freeze 10')
-parser.add_argument('--amsgrad', action='store_true', help='Use amsgrad with Adam optimizer')
+parser.add_argument('--amsgrad', action='store_true', help='Use amsgrad with Adam optimizer (requires Keras 2.1.3)')
 parser.add_argument('--no-imagenet', action='store_true', help='Do NOT use imagenet-trained weights to init model')
 parser.add_argument('--pooling', default='avg', help='Pooling to use for feature extraction, e.g. --pooling avg|max')
 
 parser.add_argument('-v', '--views', default=0, type=int, help='Number of views to use in multi-view model (defaults to single-view if not specified)')
-
 
 # multi specific
 parser.add_argument('-m', '--multi', action='store_true', help='Use multi model')
@@ -121,6 +122,7 @@ offset = args.offset
 ensemble = args.ensemble
 ensemble_mean = args.ensemble_mean
 jitter_channel = args.jitter_channel
+jitter_metadata = args.jitter_metadata
 
 #DIRECTORIES AND FILES
 directories = {}
