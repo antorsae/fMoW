@@ -159,6 +159,7 @@ class FMOWBaseline:
     def get_preffix(self):
         preffix_pairs = [ \
             'multi' if self.params.multi else 'cnn', \
+            'views_' + str(self.params.views) if (self.params.views != 0 and not self.params.multi) else '', \
             'metadata' if self.params.use_metadata else 'no_metadata', \
             'd_' + self.params.directories_suffix, \
             'c_' + self.params.classifier + '_' + self.params.pooling, \
@@ -212,7 +213,7 @@ class FMOWBaseline:
             prediction_shape = prediction_maps[0][bbID].shape
             predictions = np.zeros((n_maps, prediction_shape[1]))
             for i, prediction_map in enumerate(prediction_maps):
-                
+
                 pred = prediction_map[bbID]
                 if self.params.ensemble_mean == 'geometric':
                     pred = np.log(pred + epsilon) # avoid numerical instability log(0)
