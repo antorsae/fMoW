@@ -261,12 +261,13 @@ def _process_file(file, slashes, root, isTrain, outDir, params):
             # always has valid pixels in the center params.target_img_size square
             src_points = np.float32([[_x0,_y0], [_x1, _y0], [_x1, _y1]])
             sq2 = 1.4142135624 
-            patch_size   = params.target_img_size * sq2
+            patch_size   = params.target_img_size * (sq2 + params.offset + params.zoom)
             patch_center = patch_size / 2
+            patch_crop   = params.target_img_size / 2 
             dst_points = np.float32((
-                [ patch_center - patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
-                [ patch_center + patch_size / (2 * sq2) , patch_center - patch_size / (2 * sq2) ], 
-                [ patch_center + patch_size / (2 * sq2) , patch_center + patch_size / (2 * sq2) ])) 
+                [ patch_center - patch_crop , patch_center - patch_crop ], 
+                [ patch_center + patch_crop , patch_center - patch_crop ], 
+                [ patch_center + patch_crop , patch_center + patch_crop ])) 
 
             M   = cv2.getAffineTransform(src_points, dst_points)
             patch_size_int = int(math.ceil(patch_size))

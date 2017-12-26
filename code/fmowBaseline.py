@@ -49,6 +49,7 @@ from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_
 import hickle
 import keras.losses
 from keras.losses import categorical_hinge
+import glob
 
 def softF1_loss(target, output):
     smooth = 0.001
@@ -171,6 +172,7 @@ class FMOWBaseline:
             'td_' + str(self.params.temporal_dropout) if self.params.multi else '', \
             'a_' + str(self.params.angle) if not self.params.multi else '', \
             'o_' + str(self.params.offset) if not self.params.multi else '', \
+            'z_' + str(self.params.zoom) if not self.params.multi else '', \
             'jc_' + str(self.params.jitter_channel) if not self.params.multi else '', \
             'jm_' + str(self.params.jitter_metadata) if not self.params.multi else '', \
             'freeze_' + str(self.params.freeze) if not self.params.multi else '', \
@@ -198,15 +200,24 @@ class FMOWBaseline:
     def ensemble(self):
         prediction_maps = [ ]
 
+        prediction_name_suffix = ''
+
         for predictions_map_hkl in self.params.ensemble:
             print("Loading " + predictions_map_hkl)
             prediction_maps.append(hickle.load(predictions_map_hkl))
+            predictions_filename = glob.glob(predictions_map_hkl[:-4]+'*.txt')[0]
+            match = re.search(r'.*-c_(\w+)-.*-epoch_(\d+).*-LB_(\d+)\.txt', predictions_filename)
+            if match:
+                classifier = match.group(1)
+                epoch =      match.group(2)
+                lb    =      match.group(3)
+                prediction_name_suffix += '--' + classifier + "-" + epoch + "-" + lb
 
         n_maps = len(prediction_maps)
         assert n_maps > 1
 
         prediction_name_preffix = os.path.join(self.params.directories['predictions'], 
-                'ensemble-%s-%s-%s' % (n_maps, self.params.ensemble_mean, time.strftime("%Y%m%d-%H%M%S")))
+                'ensemble-%s-%s%s-%s' % (n_maps, self.params.ensemble_mean, prediction_name_suffix, time.strftime("%Y%m%d-%H%M%S")))
         fid = open(prediction_name_preffix + '.txt', 'w')
         epsilon = 1e-8
         for bbID in tqdm(prediction_maps[0]):
@@ -263,6 +274,9 @@ class FMOWBaseline:
 
             assert len(allTrainingViews) == len(trainViews) + len(validViews)
 
+            # for validation leave only exact number of views
+            validViews = [_t for _t in validViews if len(_t) == self.params.views]
+
         metadataStats = json.load(open(self.params.files['dataset_stats']))
 
         loaded_filename = None
@@ -311,6 +325,8 @@ class FMOWBaseline:
         if self.params.views != 0:
             trainData = trainViews
             validData = validViews
+
+        print("Train samples: %d, validation samples: %d" % ((len(trainData), len(validData))))
 
         model.fit_generator(
             generator=img_metadata_generator(self.params, trainData, metadataStats, class_aware_sampling = not self.params.leave_unbalanced),
