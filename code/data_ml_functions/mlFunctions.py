@@ -42,6 +42,7 @@ import scipy
 import math
 
 from data_ml_functions.iterm import show_image
+import datetime
 
 #from data_ml_functions.keras_squeeze_excite_network.se_inception_resnet_v2 import SEInceptionResNetV2
 #from data_ml_functions.DenseNet import densenet
@@ -96,6 +97,7 @@ def get_cnn_model(params):
         modelStruct = LSTM(256, return_sequences=True, dropout=0.2)(modelStruct)
         modelStruct = LSTM(256, return_sequences=True, dropout=0.2)(modelStruct)
         modelStruct = LSTM(params.num_labels, return_sequences=False)(modelStruct)
+        modelStruct = Activation('softmax')(modelStruct)
         #modelStruct = Flatten()(modelStruct)
 #model.add(Dense(params.num_labels, activation='softmax'))
         #modelStruct = Permute((2, 1))(modelStruct)
@@ -125,8 +127,7 @@ def get_cnn_model(params):
         modelStruct = Dropout(0.5)(modelStruct)
         modelStruct = Dense(512, activation='relu', name='nfc3')(modelStruct)
         modelStruct = Dropout(0.5)(modelStruct)
-    
-    predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
+        predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
 
     if params.views == 0:
         inputs = [input_tensor]
@@ -424,8 +425,40 @@ def mask_metadata(metadata):
 
     return metadata
 
+def get_timestamp(metadata):
+    return (metadata[4]-1970)*525600 + metadata[5]*12*43800 + metadata[6]*31*1440 + metadata[7]*60
+
 def jitter_metadata(metadata, scale, max_values):
-    return np.random.uniform(metadata - max_values * scale / 2, metadata + max_values * scale / 2)
+    year   = int(metadata[4])
+    month  = int(metadata[5]*12) # 1..12 / 12 => 1..12
+    day    = int(metadata[6]*31) # 1..31 / 31 => 1..31
+    hour   = int(metadata[7]) # 0..23 + 0..59/60 -> 0..23
+    minute = int((metadata[7] - hour) * 60) # 0..59
+    second = int(metadata[43]) # 0..59
+
+    scan_direction = metadata[8]  # 0 or 1
+    bounding_boxes = metadata[44] # 0 or 1
+
+    _max_values = np.array(max_values)
+    metadata = np.random.uniform(metadata - _max_values * scale / 2., metadata + _max_values * scale / 2.)
+
+    timespan_1year = 365.25 # in days
+    time_delta = datetime.timedelta(\
+        days=int(np.random.uniform(-scale * 365/ 2, scale * 365 / 2)))
+
+    metadata_time  = datetime.datetime(year, month, day, hour, minute) + time_delta
+
+    metadata[4] = metadata_time.year
+    metadata[5] = metadata_time.month/12.
+    metadata[6] = metadata_time.day/31.
+    metadata[7] = hour/12. # keep hour b/c lighting conditions
+    metadata[39] = float(metadata_time.weekday())
+    metadata[43] = metadata_time.second 
+    
+    metadata[8]   = scan_direction # keep scan direction
+    metadata[44]  = bounding_boxes # keep bounding boxes (0 or 1)
+
+    return metadata
 
 def _load_batch_helper(inputDict, augmentation):
     """
@@ -627,9 +660,6 @@ def load_lstm_batch(params, data, batchKeys, metadataStats, codesStats, executor
     labels = to_categorical(labels, params.num_labels)
     
     return codesMetadata,labels
-
-def get_timestamp(metadata):
-    return (metadata[4]-1970)*525600 + metadata[5]*12*43800 + metadata[6]*31*1440 + metadata[7]*60
 
 def _load_lstm_batch_helper(inputDict):
 
