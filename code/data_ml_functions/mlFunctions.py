@@ -93,10 +93,11 @@ def get_cnn_model(params):
                 #modelStruct = add([modelStruct, _modelStruct])
         # new
         modelStruct = Reshape((params.views, -1))(modelStruct)
-        model.add(LSTM(256, return_sequences=True, dropout=0.2))
-        model.add(LSTM(256, return_sequences=True, dropout=0.2))
-        model.add(Flatten())
-        #model.add(Dense(params.num_labels, activation='softmax'))
+        modelStruct = LSTM(256, return_sequences=True, dropout=0.2)(modelStruct)
+        modelStruct = LSTM(256, return_sequences=True, dropout=0.2)(modelStruct)
+        modelStruct = LSTM(params.num_labels, return_sequences=False)(modelStruct)
+        #modelStruct = Flatten()(modelStruct)
+#model.add(Dense(params.num_labels, activation='softmax'))
         #modelStruct = Permute((2, 1))(modelStruct)
         #modelStruct = LocallyConnected1D(3, 1, activation='relu')(modelStruct)
         #modelStruct = LocallyConnected1D(2, 1, activation='relu')(modelStruct)
@@ -124,7 +125,8 @@ def get_cnn_model(params):
         modelStruct = Dropout(0.5)(modelStruct)
         modelStruct = Dense(512, activation='relu', name='nfc3')(modelStruct)
         modelStruct = Dropout(0.5)(modelStruct)
-        predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
+    
+    predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
 
     if params.views == 0:
         inputs = [input_tensor]
