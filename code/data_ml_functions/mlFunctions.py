@@ -67,7 +67,8 @@ def get_cnn_model(params):
     else:
         baseModel = classifier(weights='imagenet' if not params.no_imagenet else None, 
             include_top=False, 
-            pooling=params.pooling if params.pooling != 'none' else None)
+            pooling=params.pooling if params.pooling != 'none' else None,
+            input_shape=(params.target_img_size, params.target_img_size, params.num_channels))
             
     trainable = False
     n_trainable = 0
