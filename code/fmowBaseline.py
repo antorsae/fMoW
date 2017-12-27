@@ -287,7 +287,7 @@ class FMOWBaseline:
             model = get_cnn_model(self.params)
 
         if self.params.args.load_weights:
-            model.load_weights(self.params.args.load_weights, by_name=True)
+            model.load_weights(self.params.args.load_weights, by_name=True) # Keras 2.1.2, skip_mismatch=True)
             loaded_filename = os.path.basename(self.params.args.load_weights)
 
         initial_epoch = self.get_initial_epoch(loaded_filename)
