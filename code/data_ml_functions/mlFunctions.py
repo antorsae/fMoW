@@ -26,8 +26,6 @@ from keras.models import Sequential,Model
 from keras.preprocessing.image import random_channel_shift
 from keras.utils.np_utils import to_categorical
 
-from keras_contrib.layers.normalization import InstanceNormalization, BatchRenormalization
-
 import numpy as np
 
 from data_ml_functions.dataFunctions import get_batch_inds, flip_axis

@@ -281,7 +281,9 @@ class FMOWBaseline:
 
         loaded_filename = None
         if self.params.args.load_model:
-            model = load_model(self.params.args.load_model)
+            from keras.utils.generic_utils import CustomObjectScope
+            with CustomObjectScope({'relu6': keras.applications.mobilenet.relu6, 'DepthwiseConv2D': keras.applications.mobilenet.DepthwiseConv2D}):
+                model = load_model(self.params.args.load_model)
             loaded_filename = os.path.basename(self.params.args.load_model)
         else:
             model = get_cnn_model(self.params)
@@ -434,7 +436,9 @@ class FMOWBaseline:
 
         loaded_filename = None
         if self.params.args.load_model:
-            model = load_model(self.params.args.load_model)
+            from keras.utils.generic_utils import CustomObjectScope
+            with CustomObjectScope({'relu6': keras.applications.mobilenet.relu6, 'DepthwiseConv2D': keras.applications.mobilenet.DepthwiseConv2D}):
+                model = load_model(self.params.args.load_model)
             loaded_filename = os.path.basename(self.params.args.load_model)
         else:
             model = get_cnn_model(self.params) if not self.params.multi else get_multi_model(self.params, codesStats)
