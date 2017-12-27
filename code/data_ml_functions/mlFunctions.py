@@ -21,7 +21,8 @@ __version__ = 0.1
 
 import json
 from keras.applications import VGG16, VGG19, MobileNet, imagenet_utils, InceptionResNetV2, InceptionV3, Xception, ResNet50
-from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, add, Reshape, Conv2D, Conv1D, MaxPooling2D, ConvLSTM2D, Activation, BatchNormalization, Permute, LocallyConnected1D
+from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, add, Reshape, Conv2D, Conv1D, \
+                         MaxPooling2D, ConvLSTM2D, Activation, BatchNormalization, Permute, LocallyConnected1D, ConvLSTM2D
 from keras.models import Sequential,Model
 from keras.preprocessing.image import random_channel_shift
 from keras.utils.np_utils import to_categorical
@@ -92,13 +93,30 @@ def get_cnn_model(params):
                 modelStruct = concatenate([modelStruct, _modelStruct])
                 #modelStruct = add([modelStruct, _modelStruct])
         # new
-        modelStruct = Reshape((params.views, -1))(modelStruct)
-        modelStruct = LSTM(256, return_sequences=True, dropout=0.2)(modelStruct)
-        modelStruct = LSTM(256, return_sequences=True, dropout=0.2)(modelStruct)
-        modelStruct = LSTM(params.num_labels, return_sequences=False)(modelStruct)
-        modelStruct = Activation('softmax')(modelStruct)
-        #modelStruct = Flatten()(modelStruct)
-#model.add(Dense(params.num_labels, activation='softmax'))
+        if params.pooling != 'none':
+            lstm_preffix = 'lstm_'
+            modelStruct = Reshape((params.views, -1))(modelStruct)
+            modelStruct = LSTM(1024, return_sequences=True, name=lstm_preffix + '0_1024_' + str(params.views))(modelStruct)
+            modelStruct = LSTM(512,  return_sequences=True, name=lstm_preffix + '1_512_'  + str(params.views))(modelStruct)
+        else:
+            lstm_preffix = 'lstm2d_'
+            modelStruct = Reshape((params.views, 7, 7, -1))(modelStruct)
+            modelStruct = ConvLSTM2D(256, (1,1), activation='relu', return_sequences=True, name=lstm_preffix + '0_256_' + str(params.views))(modelStruct)
+            modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=lstm_preffix + '1_256_' + str(params.views))(modelStruct)
+            modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=lstm_preffix + '2_256_' + str(params.views))(modelStruct)
+            modelStruct = ConvLSTM2D(params.num_labels, (3,3), return_sequences=False, name=lstm_preffix + 'labels_' + str(params.views))(modelStruct)
+#            modelStruct = Reshape((params.views, -1))(modelStruct)
+            modelStruct = Flatten()(modelStruct)
+
+        if True:
+            #modelStruct = LSTM(params.num_labels, return_sequences=False, name=lstm_preffix + 'labels_' + str(params.views))(modelStruct)
+            predictions = Activation('softmax')(modelStruct)
+        else:
+            #modelStruct = LSTM(params.num_labels, return_sequences=True, name='lstm_labels_' + str(params.views))(modelStruct)
+            modelStruct = Flatten()(modelStruct)
+            predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
+
+        #model.add(Dense(params.num_labels, activation='softmax'))
         #modelStruct = Permute((2, 1))(modelStruct)
         #modelStruct = LocallyConnected1D(3, 1, activation='relu')(modelStruct)
         #modelStruct = LocallyConnected1D(2, 1, activation='relu')(modelStruct)
