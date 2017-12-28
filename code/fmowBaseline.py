@@ -88,9 +88,9 @@ class FMOW_Callback(Callback):
         super(Callback, self).__init__()
 
     def on_epoch_begin(self, epoch, logs={}):
-        np.random.seed(epoch)
-        random.seed(epoch)
-        tf.set_random_seed(epoch)
+        np.random.seed(epoch + self.params.seed)
+        random.seed(epoch + self.params.seed)
+        tf.set_random_seed(epoch + self.params.seed)
         return
 
     def on_epoch_end(self, epoch, logs={}):
@@ -117,9 +117,9 @@ class FMOWBaseline:
         keras.losses.softF1_loss      = softF1_loss
         keras.losses.surrogateF1_loss = surrogateF1_loss
 
-        np.random.seed(0)
-        random.seed(0)
-        tf.set_random_seed(0)
+        np.random.seed(params.seed)
+        random.seed(params.seed)
+        tf.set_random_seed(params.seed)
 
         if (K._backend == 'tensorflow') and (params.gpu_memory_frac != 1.0):
             from keras.backend.tensorflow_backend import set_session

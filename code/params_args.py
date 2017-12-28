@@ -39,6 +39,7 @@ parser.add_argument('-d', '--dir-suffix', type=str, default='_r224', help='Suffi
 parser.add_argument('--prepare', action='store_true', help='Prepare data')
 parser.add_argument('--train', action='store_true', help='Train model')
 parser.add_argument('-gm', '--gpu-memory-frac', default=1., type=float, action='store', help='Use fraction of GPU memory (tensorflow only)')
+parser.add_argument('-s', '--seed', default=0, type=int, action='store', help='Initial seed')
 
 # ensembling
 parser.add_argument('-e', '--ensemble', type=str, nargs='*', default=None, help='Generate predictions based on ensemble of multiple hkl files, e.g. -e *.hkl')
@@ -129,6 +130,7 @@ ensemble_mean = args.ensemble_mean
 jitter_channel = args.jitter_channel
 jitter_metadata = args.jitter_metadata
 gpu_memory_frac = args.gpu_memory_frac
+seed = args.seed
 
 #DIRECTORIES AND FILES
 directories = {}

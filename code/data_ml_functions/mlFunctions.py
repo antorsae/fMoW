@@ -104,23 +104,19 @@ def get_cnn_model(params):
             modelStruct = LSTM(1024, return_sequences=True, name=mview_preffix + '0_1024_' + str(params.views))(modelStruct)
             modelStruct = LSTM(512,  return_sequences=True, name=mview_preffix + '1_512_'  + str(params.views))(modelStruct)
             if True:
-                #modelStruct = LSTM(params.num_labels, return_sequences=False, name=lstm_preffix + 'labels_' + str(params.views))(modelStruct)
                 predictions = Activation('softmax')(modelStruct)
             else:
-                #modelStruct = LSTM(params.num_labels, return_sequences=True, name='lstm_labels_' + str(params.views))(modelStruct)
                 modelStruct = Flatten()(modelStruct)
                 predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
         else:
             last_shape = modelStruct.shape
-            print(last_shape)
             assert last_shape[1] == last_shape[2]
             conv_features_grid_shape = int(last_shape[1])
             conv_features_filters_shape = int(last_shape[3])
             new_shape = (params.views, conv_features_grid_shape, conv_features_grid_shape, -1)
-            print(new_shape)
             modelStruct = Reshape(new_shape)(modelStruct)
             if params.view_model == 'lstm2d':
-                # make it adaptative rel to grid shape
+                # TODO: make it adaptative rel to grid shape
                 mview_preffix = 'lstm2d_'
                 modelStruct = ConvLSTM2D(256, (1,1), activation='relu', return_sequences=True, name=mview_preffix + '0_256_' + str(params.views))(modelStruct)
                 #modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=lstm_preffix + '1_256_' + str(params.views))(modelStruct)
@@ -132,11 +128,19 @@ def get_cnn_model(params):
                 mview_preffix = 'conv3d_'
                 down_convs = max(conv_features_grid_shape, params.views)
                 kernels_views = np.diff(np.linspace(params.views,             1, down_convs, dtype=np.int32))
-                kernels_grids = np.diff(np.linspace(conv_features_grid_shape, 1, down_convs, dtype=np.int32))
-                filters = 2** np.int32(np.log2(np.logspace(np.log2(conv_features_filters_shape)-1,6, down_convs, dtype=np.int32, base=2))) #todo change 6 to 2**(ceil(log2(params.num_labels))
-                filters[-1] = params.num_labels
-                print(down_convs, kernels_views, kernels_grids, filters) 
+                
+                # defer kernel view to bottom of convs
+                kernels_views_holes = 0
+                for kernel_views in kernels_views:
+                    if kernel_views == 0:
+                        kernels_views_holes += 1
+                kernels_views = np.roll(kernels_views, kernels_views_holes)
 
+                kernels_grids = np.diff(np.linspace(conv_features_grid_shape, 1, down_convs, dtype=np.int32))
+                 #todo change 6 below to 2**(ceil(log2(params.num_labels)
+                filters = 2** np.int32(np.log2(np.logspace(np.log2(conv_features_filters_shape)-1,6, down_convs, dtype=np.int32, base=2)))
+                filters[-1] = params.num_labels
+                
                 for it, (kernel_views, kernel_grid, _filter) in enumerate(zip(kernels_views, kernels_grids, filters[1:])):
                     last = (it == down_convs - 2)
                     _kernel_views = -kernel_views + 1
