@@ -70,6 +70,12 @@ def get_cnn_model(params):
             include_top=False, 
             pooling=params.pooling if params.pooling != 'none' else None,
             input_shape=(params.target_img_size, params.target_img_size, params.num_channels))
+        baseModel.summary()
+        if params.classifier == 'ResNet50' and params.pooling == 'none':
+            baseModel.layers.pop()
+            baseModel.outputs = [baseModel.layers[-1].output]
+            baseModel.output_layers = [baseModel.layers[-1]]
+            baseModel.layers[-1].outbound_nodes = []
             
     trainable = False
     n_trainable = 0
@@ -126,21 +132,21 @@ def get_cnn_model(params):
             elif params.view_model == 'conv3d':
                 mview_preffix = 'conv3d_'
                 down_convs = max(conv_features_grid_shape, params.views)
-                strides_views = np.diff(np.linspace(params.views,             1, down_convs, dtype=np.int32))
-                strides_grids = np.diff(np.linspace(conv_features_grid_shape, 1, down_convs, dtype=np.int32))
+                kernels_views = np.diff(np.linspace(params.views,             1, down_convs, dtype=np.int32))
+                kernels_grids = np.diff(np.linspace(conv_features_grid_shape, 1, down_convs, dtype=np.int32))
                 filters = 2** np.int32(np.log2(np.logspace(np.log2(conv_features_filters_shape)-1,6, down_convs, dtype=np.int32, base=2))) #todo change 6 to 2**(ceil(log2(params.num_labels))
                 filters[-1] = params.num_labels
-                print(down_convs, strides_views, strides_grids, filters) 
+                print(down_convs, kernels_views, kernels_grids, filters) 
 
-                for it, (stride_views, stride_grid, _filter) in enumerate(zip(strides_views, strides_grids, filters[1:])):
+                for it, (kernel_views, kernel_grid, _filter) in enumerate(zip(kernels_views, kernels_grids, filters[1:])):
                     last = (it == down_convs - 2)
-                    _stride_views = -stride_views + 1
-                    _stride_grid  = -stride_grid  + 1
+                    _kernel_views = -kernel_views + 1
+                    _kernel_grid  = -kernel_grid  + 1
                     modelStruct = Conv3D( 
                         _filter, 
-                        (_stride_views,_stride_grid,_stride_grid), 
+                        (_kernel_views,_kernel_grid,_kernel_grid), 
                         activation='relu' if not last else 'softmax', 
-                        name=mview_preffix + str(it) + '_s'+ str(_stride_views) + '_'  + str(_stride_grid) + '_f_' +  str(_filter) + '_' + str(params.views) + ('_softmax' if last else ''))(modelStruct)
+                        name=mview_preffix + str(it) + '_k'+ str(_kernel_views) + '_'  + str(_kernel_grid) + '_f' +  str(_filter) + '_' + str(params.views) + ('_softmax' if last else ''))(modelStruct)
 
                     if not last:
                         modelStruct = BatchNormalization(name=mview_preffix + str(it) + '_batchnorm_' + str(params.views))(modelStruct)

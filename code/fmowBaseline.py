@@ -50,6 +50,7 @@ import hickle
 import keras.losses
 from keras.losses import categorical_hinge
 import glob
+import tensorflow as tf
 
 def softF1_loss(target, output):
     smooth = 0.001
@@ -89,6 +90,7 @@ class FMOW_Callback(Callback):
     def on_epoch_begin(self, epoch, logs={}):
         np.random.seed(epoch)
         random.seed(epoch)
+        tf.set_random_seed(epoch)
         return
 
     def on_epoch_end(self, epoch, logs={}):
@@ -117,8 +119,8 @@ class FMOWBaseline:
 
         np.random.seed(0)
         random.seed(0)
+        tf.set_random_seed(0)
 
-                
         if self.params.use_metadata:
             self.params.files['cnn_model'] = os.path.join(self.params.directories['cnn_models'], 'cnn_model_with_metadata.model')
             self.params.files['cnn_codes_stats'] = os.path.join(self.params.directories['working'], 'cnn_codes_stats_with_metadata.json')
