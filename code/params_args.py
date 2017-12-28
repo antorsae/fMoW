@@ -73,6 +73,7 @@ parser.add_argument('--no-imagenet', action='store_true', help='Do NOT use image
 parser.add_argument('--pooling', default='avg', help='Pooling to use for feature extraction, e.g. --pooling avg|max')
 
 parser.add_argument('-v', '--views', default=0, type=int, help='Number of views to use in multi-view model (defaults to single-view if not specified)')
+parser.add_argument('-vm', '--view-model', default='lstm2d', help='Submodel for multi-view: -vm lstm2d|conv3d')
 
 # multi specific
 parser.add_argument('-m', '--multi', action='store_true', help='Use multi model')
@@ -119,6 +120,7 @@ amsgrad = args.amsgrad
 no_imagenet = args.no_imagenet
 pooling = args.pooling
 views = args.views
+view_model = args.view_model
 offset = args.offset
 zoom = args.zoom
 ensemble = args.ensemble

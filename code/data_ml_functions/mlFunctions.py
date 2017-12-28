@@ -22,7 +22,7 @@ __version__ = 0.1
 import json
 from keras.applications import VGG16, VGG19, MobileNet, imagenet_utils, InceptionResNetV2, InceptionV3, Xception, ResNet50
 from keras.layers import Dense,Input,Flatten,Dropout,LSTM, GRU, concatenate, add, Reshape, Conv2D, Conv1D, \
-                         MaxPooling2D, ConvLSTM2D, Activation, BatchNormalization, Permute, LocallyConnected1D, ConvLSTM2D
+                         MaxPooling2D, ConvLSTM2D, Activation, BatchNormalization, Permute, LocallyConnected1D, ConvLSTM2D, Conv3D
 from keras.models import Sequential,Model
 from keras.preprocessing.image import random_channel_shift
 from keras.utils.np_utils import to_categorical
@@ -94,27 +94,62 @@ def get_cnn_model(params):
                 #modelStruct = add([modelStruct, _modelStruct])
         # new
         if params.pooling != 'none':
-            lstm_preffix = 'lstm_'
+            mview_preffix = 'lstm_'
             modelStruct = Reshape((params.views, -1))(modelStruct)
-            modelStruct = LSTM(1024, return_sequences=True, name=lstm_preffix + '0_1024_' + str(params.views))(modelStruct)
-            modelStruct = LSTM(512,  return_sequences=True, name=lstm_preffix + '1_512_'  + str(params.views))(modelStruct)
+            modelStruct = LSTM(1024, return_sequences=True, name=mview_preffix + '0_1024_' + str(params.views))(modelStruct)
+            modelStruct = LSTM(512,  return_sequences=True, name=mview_preffix + '1_512_'  + str(params.views))(modelStruct)
+            if True:
+                #modelStruct = LSTM(params.num_labels, return_sequences=False, name=lstm_preffix + 'labels_' + str(params.views))(modelStruct)
+                predictions = Activation('softmax')(modelStruct)
+            else:
+                #modelStruct = LSTM(params.num_labels, return_sequences=True, name='lstm_labels_' + str(params.views))(modelStruct)
+                modelStruct = Flatten()(modelStruct)
+                predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
         else:
-            lstm_preffix = 'lstm2d_'
-            modelStruct = Reshape((params.views, 5, 5, -1))(modelStruct)
-            modelStruct = ConvLSTM2D(256, (1,1), activation='relu', return_sequences=True, name=lstm_preffix + '0_256_' + str(params.views))(modelStruct)
-            #modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=lstm_preffix + '1_256_' + str(params.views))(modelStruct)
-            modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=lstm_preffix + '2_256_' + str(params.views))(modelStruct)
-            modelStruct = ConvLSTM2D(params.num_labels, (3,3), return_sequences=False, name=lstm_preffix + 'labels_' + str(params.views))(modelStruct)
-#            modelStruct = Reshape((params.views, -1))(modelStruct)
-            modelStruct = Flatten()(modelStruct)
+            last_shape = modelStruct.shape
+            print(last_shape)
+            assert last_shape[1] == last_shape[2]
+            conv_features_grid_shape = int(last_shape[1])
+            new_shape = (params.views, conv_features_grid_shape, conv_features_grid_shape, -1)
+            print(new_shape)
+            modelStruct = Reshape(new_shape)(modelStruct)
+            if params.view_model == 'lstm2d':
+                # make it adaptative rel to grid shape
+                mview_preffix = 'lstm2d_'
+                modelStruct = ConvLSTM2D(256, (1,1), activation='relu', return_sequences=True, name=mview_preffix + '0_256_' + str(params.views))(modelStruct)
+                #modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=lstm_preffix + '1_256_' + str(params.views))(modelStruct)
+                modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=mview_preffix + '2_256_' + str(params.views))(modelStruct)
+                modelStruct = ConvLSTM2D(params.num_labels, (3,3), return_sequences=False, name=mview_preffix + 'labels_' + str(params.views))(modelStruct)
+                modelStruct = Flatten()(modelStruct)
+                modelStruct = Activation('softmax')(modelStruct)
+            elif params.view_model == 'conv3d':
+                mview_preffix = 'conv3d_'
+                filter_start = 512
+                down_convs = max(conv_features_grid_shape, params.views)
+                strides_views = np.diff(np.linspace(params.views,             1, down_convs, dtype=np.int32))
+                strides_grids = np.diff(np.linspace(conv_features_grid_shape, 1, down_convs, dtype=np.int32))
+                print(down_convs, strides_views, strides_grids) 
 
-        if True:
-            #modelStruct = LSTM(params.num_labels, return_sequences=False, name=lstm_preffix + 'labels_' + str(params.views))(modelStruct)
-            predictions = Activation('softmax')(modelStruct)
-        else:
-            #modelStruct = LSTM(params.num_labels, return_sequences=True, name='lstm_labels_' + str(params.views))(modelStruct)
-            modelStruct = Flatten()(modelStruct)
-            predictions = Dense(params.num_labels, activation='softmax', name='predictions')(modelStruct)
+                for it, (stride_views, stride_grid) in enumerate(zip(strides_views, strides_grids)):
+                    modelStruct = Conv3D(
+                        filter_start, 
+                        (-stride_views+1,-stride_grid+1,-stride_grid+1), 
+                        activation='relu', 
+                        name=mview_preffix + str(it) + '_'+ str(filter_start) + '_' + str(params.views))(modelStruct)
+
+                    filter_start //= 2
+                    modelStruct = BatchNormalization(name=mview_preffix + str(it) + '_batchnorm_' + str(params.views))(modelStruct)
+
+                # fixed
+                #modelStruct = Conv3D(512, (1,1,1), activation='relu', name=mview_preffix + '0_512_' + str(params.views))(modelStruct)
+                #modelStruct = BatchNormalization()(modelStruct)
+                #modelStruct = Conv3D(256, (2,3,3), activation='relu', name=mview_preffix + '1_256_' + str(params.views))(modelStruct)
+                #modelStruct = BatchNormalization()(modelStruct)
+                #modelStruct = Conv3D(128, (2,3,3), activation='relu', name=mview_preffix + '2_128_' + str(params.views))(modelStruct)
+                #modelStruct = BatchNormalization()(modelStruct)
+                modelStruct = Conv3D(params.num_labels, (1,1,1), activation='softmax', name=mview_preffix + '3_labels_' + str(params.views))(modelStruct)
+                predictions = Flatten()(modelStruct)
+
 
         #model.add(Dense(params.num_labels, activation='softmax'))
         #modelStruct = Permute((2, 1))(modelStruct)
