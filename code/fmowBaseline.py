@@ -81,6 +81,7 @@ def focal_loss(target, output, gamma=2):
     return -K.sum(K.pow(1. - output, gamma) * target * K.log(output), axis=-1)
 
 category_weights = None
+global_seed = None
 
 class FMOW_Callback(Callback):
 
@@ -88,9 +89,9 @@ class FMOW_Callback(Callback):
         super(Callback, self).__init__()
 
     def on_epoch_begin(self, epoch, logs={}):
-        np.random.seed(epoch + self.params.seed)
-        random.seed(epoch + self.params.seed)
-        tf.set_random_seed(epoch + self.params.seed)
+        np.random.seed(epoch + seed)
+        random.seed(epoch + seed)
+        tf.set_random_seed(epoch + seed)
         return
 
     def on_epoch_end(self, epoch, logs={}):
@@ -109,6 +110,7 @@ class FMOWBaseline:
         :return: 
         """
         global category_weights
+        global seed
 
         self.params = params
         category_weights = self.get_class_weights(return_array=True)
@@ -117,9 +119,10 @@ class FMOWBaseline:
         keras.losses.softF1_loss      = softF1_loss
         keras.losses.surrogateF1_loss = surrogateF1_loss
 
-        np.random.seed(params.seed)
-        random.seed(params.seed)
-        tf.set_random_seed(params.seed)
+        seed = params.seed
+        np.random.seed(seed)
+        random.seed(seed)
+        tf.set_random_seed(seed)
 
         if (K._backend == 'tensorflow') and (params.gpu_memory_frac != 1.0):
             from keras.backend.tensorflow_backend import set_session
