@@ -121,6 +121,14 @@ class FMOWBaseline:
         random.seed(0)
         tf.set_random_seed(0)
 
+        if (K._backend == 'tensorflow') and (params.gpu_memory_frac != 1.0):
+            from keras.backend.tensorflow_backend import set_session
+
+            config = tf.ConfigProto()
+            config.gpu_options.per_process_gpu_memory_fraction = params.gpu_memory_frac
+            set_session(tf.Session(config=config))
+
+
         if self.params.use_metadata:
             self.params.files['cnn_model'] = os.path.join(self.params.directories['cnn_models'], 'cnn_model_with_metadata.model')
             self.params.files['cnn_codes_stats'] = os.path.join(self.params.directories['working'], 'cnn_codes_stats_with_metadata.json')

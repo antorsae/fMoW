@@ -38,6 +38,7 @@ parser.add_argument('--max-epoch', type=int, default=40, help='Epoch to run')
 parser.add_argument('-d', '--dir-suffix', type=str, default='_r224', help='Suffix for directory names')
 parser.add_argument('--prepare', action='store_true', help='Prepare data')
 parser.add_argument('--train', action='store_true', help='Train model')
+parser.add_argument('-gm', '--gpu-memory-frac', default=1., type=float, action='store', help='Use fraction of GPU memory (tensorflow only)')
 
 # ensembling
 parser.add_argument('-e', '--ensemble', type=str, nargs='*', default=None, help='Generate predictions based on ensemble of multiple hkl files, e.g. -e *.hkl')
@@ -127,6 +128,7 @@ ensemble = args.ensemble
 ensemble_mean = args.ensemble_mean
 jitter_channel = args.jitter_channel
 jitter_metadata = args.jitter_metadata
+gpu_memory_frac = args.gpu_memory_frac
 
 #DIRECTORIES AND FILES
 directories = {}

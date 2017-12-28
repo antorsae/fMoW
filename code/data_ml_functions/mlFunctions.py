@@ -70,7 +70,6 @@ def get_cnn_model(params):
             include_top=False, 
             pooling=params.pooling if params.pooling != 'none' else None,
             input_shape=(params.target_img_size, params.target_img_size, params.num_channels))
-        baseModel.summary()
         if params.classifier == 'ResNet50' and params.pooling == 'none':
             baseModel.layers.pop()
             baseModel.outputs = [baseModel.layers[-1].output]
