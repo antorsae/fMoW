@@ -110,6 +110,7 @@ def get_cnn_model(params):
             print(last_shape)
             assert last_shape[1] == last_shape[2]
             conv_features_grid_shape = int(last_shape[1])
+            conv_features_filters_shape = int(last_shape[3])
             new_shape = (params.views, conv_features_grid_shape, conv_features_grid_shape, -1)
             print(new_shape)
             modelStruct = Reshape(new_shape)(modelStruct)
@@ -124,21 +125,25 @@ def get_cnn_model(params):
                 modelStruct = Activation('softmax')(modelStruct)
             elif params.view_model == 'conv3d':
                 mview_preffix = 'conv3d_'
-                filter_start = 512
                 down_convs = max(conv_features_grid_shape, params.views)
                 strides_views = np.diff(np.linspace(params.views,             1, down_convs, dtype=np.int32))
                 strides_grids = np.diff(np.linspace(conv_features_grid_shape, 1, down_convs, dtype=np.int32))
-                print(down_convs, strides_views, strides_grids) 
+                filters = 2** np.int32(np.log2(np.logspace(np.log2(conv_features_filters_shape)-1,6, down_convs, dtype=np.int32, base=2))) #todo change 6 to 2**(ceil(log2(params.num_labels))
+                filters[-1] = params.num_labels
+                print(down_convs, strides_views, strides_grids, filters) 
 
-                for it, (stride_views, stride_grid) in enumerate(zip(strides_views, strides_grids)):
-                    modelStruct = Conv3D(
-                        filter_start, 
-                        (-stride_views+1,-stride_grid+1,-stride_grid+1), 
-                        activation='relu', 
-                        name=mview_preffix + str(it) + '_'+ str(filter_start) + '_' + str(params.views))(modelStruct)
+                for it, (stride_views, stride_grid, _filter) in enumerate(zip(strides_views, strides_grids, filters[1:])):
+                    last = (it == down_convs - 2)
+                    _stride_views = -stride_views + 1
+                    _stride_grid  = -stride_grid  + 1
+                    modelStruct = Conv3D( 
+                        _filter, 
+                        (_stride_views,_stride_grid,_stride_grid), 
+                        activation='relu' if not last else 'softmax', 
+                        name=mview_preffix + str(it) + '_s'+ str(_stride_views) + '_'  + str(_stride_grid) + '_f_' +  str(_filter) + '_' + str(params.views) + ('_softmax' if last else ''))(modelStruct)
 
-                    filter_start //= 2
-                    modelStruct = BatchNormalization(name=mview_preffix + str(it) + '_batchnorm_' + str(params.views))(modelStruct)
+                    if not last:
+                        modelStruct = BatchNormalization(name=mview_preffix + str(it) + '_batchnorm_' + str(params.views))(modelStruct)
 
                 # fixed
                 #modelStruct = Conv3D(512, (1,1,1), activation='relu', name=mview_preffix + '0_512_' + str(params.views))(modelStruct)
@@ -147,7 +152,7 @@ def get_cnn_model(params):
                 #modelStruct = BatchNormalization()(modelStruct)
                 #modelStruct = Conv3D(128, (2,3,3), activation='relu', name=mview_preffix + '2_128_' + str(params.views))(modelStruct)
                 #modelStruct = BatchNormalization()(modelStruct)
-                modelStruct = Conv3D(params.num_labels, (1,1,1), activation='softmax', name=mview_preffix + '3_labels_' + str(params.views))(modelStruct)
+                #modelStruct = Conv3D(params.num_labels, (1,1,1), activation='softmax', name=mview_preffix + '3_labels_' + str(params.views))(modelStruct)
                 predictions = Flatten()(modelStruct)
 
 
