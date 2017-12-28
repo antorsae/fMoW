@@ -32,7 +32,7 @@ parser.add_argument('-i', '--image-size', type=int, default=224, help='Image siz
 parser.add_argument('-l', '--learning-rate', type=float, default=1e-4, help='Initial learning rate, e.g. -l 1e-4')
 
 #cnn_epochs = 15
-parser.add_argument('--max-epoch', type=int, default=20, help='Epoch to run')
+parser.add_argument('--max-epoch', type=int, default=40, help='Epoch to run')
 
 ## 
 parser.add_argument('-d', '--dir-suffix', type=str, default='_r224', help='Suffix for directory names')

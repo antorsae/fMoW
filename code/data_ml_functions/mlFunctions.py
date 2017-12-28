@@ -100,9 +100,9 @@ def get_cnn_model(params):
             modelStruct = LSTM(512,  return_sequences=True, name=lstm_preffix + '1_512_'  + str(params.views))(modelStruct)
         else:
             lstm_preffix = 'lstm2d_'
-            modelStruct = Reshape((params.views, 7, 7, -1))(modelStruct)
+            modelStruct = Reshape((params.views, 5, 5, -1))(modelStruct)
             modelStruct = ConvLSTM2D(256, (1,1), activation='relu', return_sequences=True, name=lstm_preffix + '0_256_' + str(params.views))(modelStruct)
-            modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=lstm_preffix + '1_256_' + str(params.views))(modelStruct)
+            #modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=lstm_preffix + '1_256_' + str(params.views))(modelStruct)
             modelStruct = ConvLSTM2D(256, (3,3), activation='relu', return_sequences=True, name=lstm_preffix + '2_256_' + str(params.views))(modelStruct)
             modelStruct = ConvLSTM2D(params.num_labels, (3,3), return_sequences=False, name=lstm_preffix + 'labels_' + str(params.views))(modelStruct)
 #            modelStruct = Reshape((params.views, -1))(modelStruct)
