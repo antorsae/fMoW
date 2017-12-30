@@ -612,6 +612,8 @@ class FMOWBaseline:
 
         hickle.dump(predictions_map, prediction_name_preffix + ".hkl")
         fid.close()
+        print(prediction_name_preffix + '.txt')
+        print(prediction_name_preffix + '.hkl')
 
     def generate_cnn_codes(self):
         """
