@@ -1,3 +1,5 @@
+# neeeded to add this otherwise Keras 2.1.2 multi_gpu_model doesn't load working model
+
 from keras.layers.merge import concatenate
 from keras import backend as K
 from keras.layers.core import Lambda

@@ -1,5 +1,6 @@
 """
 Copyright 2017 The Johns Hopkins University Applied Physics Laboratory LLC
+and Andres Torrubia
 All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-__author__ = 'jhuapl'
+__author__ = 'jhuapl, antor'
 __version__ = 0.1
 
 import sys

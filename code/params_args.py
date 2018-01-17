@@ -1,3 +1,6 @@
+# alternative for params.py reading from command line
+# note the duplicate stuff to make rest of of fmow code compatible as it was w/ params.py
+
 import os
 from multiprocessing import cpu_count
 import argparse

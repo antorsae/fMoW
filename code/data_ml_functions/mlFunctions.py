@@ -1,5 +1,6 @@
 """
 Copyright 2017 The Johns Hopkins University Applied Physics Laboratory LLC
+and Andres Torrubia
 All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +17,7 @@ limitations under the License.
 """
 
 
-__author__ = 'jhuapl'
+__author__ = 'jhuapl, antor'
 __version__ = 0.1
 
 import json
@@ -40,7 +41,7 @@ import cv2
 import scipy
 import math
 
-from data_ml_functions.iterm import show_image
+#from data_ml_functions.iterm import show_image
 import datetime
 
 #from data_ml_functions.keras_squeeze_excite_network.se_inception_resnet_v2 import SEInceptionResNetV2
